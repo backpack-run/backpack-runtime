@@ -5,11 +5,10 @@
 - [x] Normalize explicit and legacy runtime contracts without model-name conditionals.
 - [x] Pull and SHA-256 verify SmolLM2 135M.
 - [x] Launch, health-check, infer, and stop SmolLM2 through llama.cpp locally.
-- [ ] Make daemon-owned session persistence, `ps`, and `stop` production quality.
+- [x] Add auto-started service ownership, persisted sessions, `ps`, exact-session `stop`, child monitoring, and SSE proxying.
 - [ ] Install/version llama.cpp runtime bundles and support projectors/split GGUF comprehensively.
 - [ ] Validate all larger GGUF packages without putting weights in ordinary CI.
-- [ ] Implement cache-aware SSH target behind the same adapter boundary.
+- [x] Add SSH configuration, probing, checksum-aware sync, remote launch, and loopback tunneling (real-host smoke test pending).
 - [ ] Implement Whisper, Qwen ASR, and Kokoro service adapters with pinned isolated runtimes.
 - [ ] Implement cancellable/progress-aware image and video job adapters after packages are inference-validated.
 - [ ] Publish a stable Desktop client/migration contract and add managed-compute protocol boundaries.
-

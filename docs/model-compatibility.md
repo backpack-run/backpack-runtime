@@ -4,7 +4,7 @@
 
 | Model | Capability | Package format | Runtime adapter | Local | SSH | Status | Notes |
 |---|---|---|---|---|---|---|---|
-| SmolLM2 135M Instruct | chat | GGUF Q4_K_M | llama.cpp | yes | no | supported | Real Windows CPU smoke test passed 2026-09-04. |
+| SmolLM2 135M Instruct | chat | GGUF Q4_K_M | llama.cpp | yes | experimental | supported | Real Windows daemon/session/SSE smoke test passed 2026-09-04; SSH host test pending. |
 | SmolLM2 1.7B Instruct | chat | GGUF | llama.cpp | expected | no | experimental | Manifest-compatible; large-path validation pending. |
 | Qwen2.5 0.5B Instruct | chat | GGUF | llama.cpp | expected | no | experimental | Manifest-compatible. |
 | Qwen3-Coder Next | chat/code | split GGUF | llama.cpp | expected | no | experimental | Split-artifact validation pending; very large. |
@@ -15,4 +15,3 @@
 | Kokoro 82M | speech | PyTorch | kokoro 0.9.4 | no | no | runtime-required | Validated model; attachable worker bundle still needed. |
 | Z-Image-Turbo | image generation | Diffusers upstream reference | diffusers 0.40.0 | no | no | package-change-required | Metadata/static checks pass; GPU inference/output validation pending. |
 | Wan2.2 TI2V 5B | video generation | Diffusers upstream reference | diffusers 0.40.0 | no | no | package-change-required | 24 GB VRAM profile; GPU inference/output validation pending. |
-

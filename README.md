@@ -14,9 +14,9 @@ CLI / Desktop / third-party clients
 
 ## Status
 
-- **Implemented:** versioned official catalog, schema-v1 manifest parsing, normalized runtime handshake, atomic downloads and SHA-256 verification, installed-model listing/inspection, local hardware report, llama.cpp local launch/health/chat/stop, loopback management API skeleton.
-- **Experimental:** all GGUF models beyond SmolLM2 135M; foreground llama.cpp serving.
-- **Planned:** persistent session manager, runtime installation, SSH execution, ASR/TTS workers, image/video jobs, Desktop client migration, managed Backpack Compute.
+- **Implemented:** versioned catalog, manifest-driven selection, verified atomic installs, auto-started local service, persisted sessions, `ps`/`stop`, hardware inspection, and llama.cpp launch/health/chat/SSE/stop.
+- **Experimental:** SSH GGUF execution and all GGUF models beyond SmolLM2 135M.
+- **Planned:** runtime bundle installation, ASR/TTS workers, image/video jobs, Desktop migration, and managed Backpack Compute.
 
 The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model compatibility](docs/model-compatibility.md).
 
@@ -29,6 +29,9 @@ go build -o backpack ./cmd/backpack
 backpack models
 backpack pull smollm2-135m
 backpack run smollm2-135m --prompt "Say hello"
+backpack run smollm2-135m --detach
+backpack ps
+backpack stop <session-id>
 backpack serve
 ```
 
@@ -37,9 +40,20 @@ The API binds to `127.0.0.1:11434` by default:
 ```console
 curl http://127.0.0.1:11434/api/backpack/v1/health
 curl http://127.0.0.1:11434/v1/models
+curl -N http://127.0.0.1:11434/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"smollm2-135m","messages":[{"role":"user","content":"Hello"}],"stream":true}'
 ```
 
 The current runtime refuses non-loopback binds because remote API authentication is not implemented.
+
+## SSH compute (experimental)
+
+```console
+backpack compute add ssh gpu-1 --host gpu.example.org --user alice
+backpack compute test gpu-1
+backpack run smollm2-135m --compute gpu-1
+```
+
+The remote host must already provide a compatible `llama-server`; Backpack verifies known hosts and model checksums, reuses the remote cache, and tunnels inference over SSH.
 
 ## Repositories
 
@@ -60,4 +74,3 @@ Key code lives under `internal/models`, `internal/runtime`, `internal/adapters`,
 ## Security and licensing
 
 Read [SECURITY.md](SECURITY.md) before exposing or embedding the runtime. Source code is Apache-2.0. Runtime engines and models keep their own licenses; packaging never relicenses a model.
-

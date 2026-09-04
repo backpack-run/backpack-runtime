@@ -15,9 +15,8 @@ The model resolver maps a stable alias to a versioned catalog entry and immutabl
 
 An adapter implements engine-specific preparation, launch, health, capability, and stop behavior. Selection uses `runtime.engine` from the normalized package contract. A compute target inspects and prepares a machine and executes a command. Therefore llama.cpp logic is shared by local and future SSH targets rather than becoming `LocalLlamaCpp` and `RemoteLlamaCpp` implementations.
 
-Sessions bind one resolved model, adapter, and target to endpoint/process state. The current CLI manages foreground sessions; durable daemon-owned sessions are the next lifecycle increment.
+Sessions bind one resolved model, adapter, and target to endpoint/process state. The auto-started local service owns processes beyond an individual CLI request, while CLI and the public Go client use the same HTTP contract. See [runtime lifecycle](runtime-lifecycle.md) and [SSH compute](ssh-compute.md).
 
 Runtime state defaults to `%LOCALAPPDATA%/Backpack` on Windows and `~/.backpack` elsewhere, with separate models, manifests, runtimes, cache, logs, state, and config directories. `BACKPACK_HOME` provides an explicit test/development override.
 
 The management API lives under `/api/backpack/v1`. OpenAI-compatible inference surfaces use `/v1` only where semantics match. The server is loopback-only until authentication and authorization exist.
-
