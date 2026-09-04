@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://backpack.run/schemas/runtime-requirement-v1.schema.json",
+  "title": "Backpack runtime requirement",
+  "type": "object",
+  "required": ["engine", "environment"],
+  "properties": {
+    "engine": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "environment": {"enum": ["native-process", "isolated-python", "container", "remote-service"]},
+    "protocol_version": {"type": "integer", "minimum": 1}
+  },
+  "additionalProperties": false
+}
+

@@ -1,0 +1,7 @@
+Backpack Runtime
+Copyright 2026 Backpack contributors
+
+This product orchestrates third-party runtime engines and models. Those components
+retain their own copyright and license terms. A Backpack package does not relicense
+its underlying model.
+

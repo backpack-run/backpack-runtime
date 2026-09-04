@@ -1,0 +1,8 @@
+.tools/
+.cache/
+bin/
+dist/
+coverage.out
+*.exe
+*.log
+.backpack/
