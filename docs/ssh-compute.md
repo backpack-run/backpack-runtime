@@ -9,6 +9,6 @@ backpack compute list
 backpack run smollm2-135m --compute gpu-1
 ```
 
-The target probes Linux CPU/RAM and NVIDIA/CUDA information. Before launch it creates `~/.backpack/models/<model>/<revision>/<package>`, compares remote SHA-256 values, skips valid artifacts, uploads missing content to `.part`, verifies it remotely, and atomically renames it. `llama-server` binds remote loopback; the local API reaches it through SSH forwarding.
+The target probes Linux CPU/RAM and NVIDIA/CUDA information. The local runtime manager first selects and verifies a Linux runtime variant, then stages its files under `~/.backpack/runtimes/<engine>/<version>/<variant>` and verifies every SHA-256 remotely. Model artifacts use the parallel `~/.backpack/models/<model>/<revision>/<package>` cache. `llama-server` binds remote loopback; the local API reaches it through SSH forwarding.
 
-Current limitation: automatic installation of a manifest-compatible remote llama.cpp build is intentionally not guessed. If `llama-server` is absent, an actionable error is returned. SCP transfer is not resumable. No real SSH smoke test runs unless a host is supplied; normal tests use a mock transport.
+No global remote installation or root access is required. Transfers use SCP and are not resumable yet. Runtime cache detection currently checks the installed manifest/executable before reuse; a future worker can perform richer remote repair. No real SSH smoke test runs unless a host is supplied; normal tests use a mock transport.
