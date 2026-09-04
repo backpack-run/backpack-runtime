@@ -35,6 +35,11 @@ type Command struct {
 	Dir            string
 	Stdout, Stderr io.Writer
 }
+type RuntimeFile struct{ Path, SHA256 string }
+type RuntimeBundle struct {
+	Engine, Version, Variant, Directory, Executable string
+	Files                                           []RuntimeFile
+}
 type Process interface {
 	PID() int
 	Wait() error

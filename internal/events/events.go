@@ -23,17 +23,20 @@ type Event struct {
 }
 
 const (
-	ModelResolve          = "model.resolve"
-	ModelDownloadStarted  = "model.download.started"
-	ModelDownloadProgress = "model.download.progress"
-	ModelVerifyComplete   = "model.verify.complete"
-	RuntimePreparing      = "runtime.prepare"
-	RuntimeStarting       = "runtime.starting"
-	RuntimeReady          = "runtime.ready"
-	GenerationToken       = "generation.token"
-	GenerationComplete    = "generation.complete"
-	RuntimeError          = "runtime.error"
-	ModelSyncProgress     = "model.sync.progress"
+	ModelResolve            = "model.resolve"
+	ModelDownloadStarted    = "model.download.started"
+	ModelDownloadProgress   = "model.download.progress"
+	ModelVerifyComplete     = "model.verify.complete"
+	RuntimePreparing        = "runtime.prepare"
+	RuntimeDownloadStarted  = "runtime.download.started"
+	RuntimeDownloadProgress = "runtime.download.progress"
+	RuntimeInstalled        = "runtime.installed"
+	RuntimeStarting         = "runtime.starting"
+	RuntimeReady            = "runtime.ready"
+	GenerationToken         = "generation.token"
+	GenerationComplete      = "generation.complete"
+	RuntimeError            = "runtime.error"
+	ModelSyncProgress       = "model.sync.progress"
 )
 
 type Sink func(Event)

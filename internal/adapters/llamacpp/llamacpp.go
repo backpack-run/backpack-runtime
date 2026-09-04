@@ -16,12 +16,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
+
+	"github.com/backpack-run/backpack-runtime/internal/runtimebundle"
 )
 
 type Adapter struct {
-	Paths  config.Paths
-	Client *http.Client
+	Paths    config.Paths
+	Client   *http.Client
+	Runtimes *runtimebundle.Manager
+	resolved sync.Map
 }
 
 func (a *Adapter) Name() string { return "llama.cpp" }
@@ -52,7 +57,7 @@ func (a *Adapter) executable(target compute.Target) (string, error) {
 	return "", fmt.Errorf("llama.cpp server is not installed; set BACKPACK_LLAMA_SERVER or place %s in %s", name, filepath.Dir(candidate))
 }
 func (a *Adapter) Prepare(ctx context.Context, m *models.Installed, target compute.Target) error {
-	if m.Runtime.Environment != "native-process" && m.Runtime.Environment != "" {
+	if m.Runtime.Environment != "native-process" && m.Runtime.Environment != "native-bundle" && m.Runtime.Environment != "" {
 		return fmt.Errorf("llama.cpp package requires unexpected environment %q", m.Runtime.Environment)
 	}
 	if _, err := os.Stat(m.Entrypoint()); err != nil {
@@ -61,17 +66,36 @@ func (a *Adapter) Prepare(ctx context.Context, m *models.Installed, target compu
 	if err := target.Prepare(ctx); err != nil {
 		return err
 	}
+	key := m.ID + "@" + m.Runtime.Version + "@" + target.Name()
+	if target.Kind() == "local" {
+		if exe, err := a.executable(target); err == nil {
+			a.resolved.Store(key, exe)
+		} else if a.Runtimes == nil {
+			return err
+		}
+	}
+	if _, ok := a.resolved.Load(key); !ok {
+		if a.Runtimes == nil {
+			return fmt.Errorf("managed runtime support is unavailable")
+		}
+		installed, err := a.Runtimes.Ensure(ctx, m.Runtime, target)
+		if err != nil {
+			return err
+		}
+		a.resolved.Store(key, installed.Executable)
+	}
 	if err := target.PrepareModel(ctx, m); err != nil {
 		return err
 	}
-	_, err := a.executable(target)
-	return err
+	return nil
 }
 func (a *Adapter) Start(ctx context.Context, m *models.Installed, target compute.Target, o backruntime.StartOptions) (*backruntime.Session, error) {
-	exe, err := a.executable(target)
-	if err != nil {
-		return nil, err
+	value, ok := a.resolved.Load(m.ID + "@" + m.Runtime.Version + "@" + target.Name())
+	if !ok {
+		return nil, fmt.Errorf("runtime was not prepared")
 	}
+	exe := value.(string)
+	var err error
 	if o.Host == "" {
 		o.Host = "127.0.0.1"
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/events"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
+	"github.com/backpack-run/backpack-runtime/internal/runtimebundle"
 	"github.com/backpack-run/backpack-runtime/internal/server"
 	"github.com/backpack-run/backpack-runtime/internal/sessions"
 	clientapi "github.com/backpack-run/backpack-runtime/pkg/client"
@@ -33,6 +34,7 @@ type app struct {
 	models   *models.Manager
 	local    compute.Local
 	llama    *llamacpp.Adapter
+	runtimes *runtimebundle.Manager
 	registry *backruntime.Registry
 }
 
@@ -46,8 +48,12 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return err
 	}
 	manager := models.NewManager(paths)
-	llama := &llamacpp.Adapter{Paths: paths}
-	a := &app{out, errOut, version, c, paths, manager, compute.Local{}, llama, nil}
+	runtimes, err := runtimebundle.New(paths, nil)
+	if err != nil {
+		return err
+	}
+	llama := &llamacpp.Adapter{Paths: paths, Runtimes: runtimes}
+	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, runtimes: runtimes}
 	a.registry = backruntime.NewRegistry(llama)
 	if len(args) == 0 {
 		return a.help()
@@ -78,6 +84,8 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.stop(ctx, args[1:])
 	case "compute":
 		return a.compute(ctx, args[1:])
+	case "runtime":
+		return a.runtimeCommand(ctx, args[1:])
 	case "_daemon":
 		return a.serve(ctx, args[1:])
 	default:
@@ -99,11 +107,91 @@ Usage: backpack <command>
   ps                      list runtime-owned sessions
   stop <session>          gracefully stop a session
   compute <command>       manage local and SSH compute targets
+  runtime <command>       inspect and manage inference runtimes
   version
 
 Run flags: --prompt text --context tokens --gpu-layers auto|n --keep-alive --detach
 `)
 	return nil
+}
+
+func (a *app) runtimeCommand(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: backpack runtime <list|show|install|verify|remove>")
+	}
+	items, err := a.runtimes.List()
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "list":
+		if len(items) == 0 {
+			fmt.Fprintln(a.out, "No managed runtimes installed.")
+			return nil
+		}
+		for _, x := range items {
+			fmt.Fprintf(a.out, "%-14s %-10s %-24s %-8s %s\n", x.Engine, x.Version, x.Variant, x.Backend, x.Directory)
+		}
+		return nil
+	case "show":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: backpack runtime show <engine>")
+		}
+		h, err := a.local.Inspect(ctx)
+		if err != nil {
+			return err
+		}
+		r, v, err := a.runtimes.Resolve(models.RuntimeRequirement{Engine: args[1], Environment: "native-bundle"}, h)
+		if err != nil {
+			return err
+		}
+		report := map[string]any{"runtime": r, "selected_variant": v}
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Fprintln(a.out, string(b))
+		return nil
+	case "install":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: backpack runtime install <engine>")
+		}
+		a.runtimes.Sink = func(e events.Event) {
+			if e.Kind == events.Progress {
+				fmt.Fprintf(a.out, "\rDownloading %-35s %d bytes", e.Message, e.Current)
+			} else {
+				fmt.Fprintln(a.out, e.Message)
+			}
+		}
+		x, err := a.runtimes.Ensure(ctx, models.RuntimeRequirement{Engine: args[1], Environment: "native-bundle"}, a.local)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "\nReady: %s %s (%s)\n", x.Engine, x.Version, x.Variant)
+		return nil
+	case "verify":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: backpack runtime verify <engine>")
+		}
+		matched := false
+		for _, x := range items {
+			if strings.EqualFold(x.Engine, args[1]) {
+				matched = true
+				if err := a.runtimes.Verify(x); err != nil {
+					return err
+				}
+				fmt.Fprintf(a.out, "Verified %s %s (%s)\n", x.Engine, x.Version, x.Variant)
+			}
+		}
+		if !matched {
+			return fmt.Errorf("runtime %q is not installed", args[1])
+		}
+		return nil
+	case "remove":
+		if len(args) != 4 {
+			return fmt.Errorf("usage: backpack runtime remove <engine> <version> <variant>")
+		}
+		return a.runtimes.Remove(args[1], args[2], args[3])
+	default:
+		return fmt.Errorf("unknown runtime command %q", args[0])
+	}
 }
 func (a *app) catalogList() error {
 	fmt.Fprintf(a.out, "Official catalog %s\n\n", a.catalog.CatalogVersion)

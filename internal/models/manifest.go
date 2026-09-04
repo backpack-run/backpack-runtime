@@ -178,13 +178,16 @@ func (m Manifest) RuntimeFor(p Package) RuntimeRequirement {
 			v = x[1]
 		}
 	}
+	if v == "" {
+		v = p.Runtime.TestedRevision
+	}
 	e := p.Runtime.Environment
 	if e == "" {
 		switch strings.ToLower(p.Runtime.Provider) {
 		case "qwen-asr", "kokoro", "diffusers":
 			e = "isolated-python"
 		default:
-			e = "native-process"
+			e = "native-bundle"
 		}
 	}
 	return RuntimeRequirement{Engine: p.Runtime.Provider, Version: v, Environment: e}

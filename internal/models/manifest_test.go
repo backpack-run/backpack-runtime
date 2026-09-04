@@ -31,6 +31,14 @@ packages:
 	}
 }
 
+func TestLegacyGGUFRuntimeUsesTestedRevisionAndManagedBundle(t *testing.T) {
+	manifest := Manifest{Packages: []Package{{ID: "q4", Runtime: RuntimeInfo{Provider: "llama.cpp", TestedRevision: "abc123"}}}}
+	r := manifest.RuntimeFor(manifest.Packages[0])
+	if r.Version != "abc123" || r.Environment != "native-bundle" {
+		t.Fatalf("runtime %#v", r)
+	}
+}
+
 func TestExplicitRuntimeContractWins(t *testing.T) {
 	data := []byte(`schema_version: 2
 model: {id: future-model, display_name: Future}

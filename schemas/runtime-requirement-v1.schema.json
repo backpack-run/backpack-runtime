@@ -7,9 +7,8 @@
   "properties": {
     "engine": {"type": "string", "minLength": 1},
     "version": {"type": "string", "minLength": 1},
-    "environment": {"enum": ["native-process", "isolated-python", "container", "remote-service"]},
+    "environment": {"enum": ["native-bundle", "native-process", "isolated-python", "container", "remote-service"]},
     "protocol_version": {"type": "integer", "minimum": 1}
   },
   "additionalProperties": false
 }
-

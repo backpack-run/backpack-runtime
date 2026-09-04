@@ -72,11 +72,8 @@ func (s *SSHTarget) Prepare(ctx context.Context) error {
 	if err := s.validate(); err != nil {
 		return err
 	}
-	out, err := s.run(ctx, `printf 'BP_HOME=%s\n' "$HOME"; command -v llama-server >/dev/null || { echo BP_MISSING_LLAMA=1; exit 42; }; command -v sha256sum >/dev/null`)
+	out, err := s.run(ctx, `printf 'BP_HOME=%s\n' "$HOME"; command -v sha256sum >/dev/null`)
 	if err != nil {
-		if strings.Contains(string(out), "BP_MISSING_LLAMA=1") {
-			return fmt.Errorf("remote target %q has no llama-server on PATH; install the manifest-compatible llama.cpp runtime", s.Name())
-		}
 		return fmt.Errorf("SSH readiness for %q failed: %w: %s", s.Name(), err, strings.TrimSpace(string(out)))
 	}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -87,6 +84,58 @@ func (s *SSHTarget) Prepare(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *SSHTarget) PrepareRuntime(ctx context.Context, bundle RuntimeBundle) (string, error) {
+	s.mu.Lock()
+	home := s.home
+	s.mu.Unlock()
+	if home == "" {
+		if err := s.Prepare(ctx); err != nil {
+			return "", err
+		}
+		s.mu.Lock()
+		home = s.home
+		s.mu.Unlock()
+	}
+	remote := strings.TrimRight(home, "/") + "/" + strings.Trim(s.Config.RemoteRoot, "/") + "/runtimes/" + bundle.Engine + "/" + bundle.Version + "/" + bundle.Variant
+	check := "test -f " + shellQuote(remote+"/manifest.json") + " && test -x " + shellQuote(remote+"/"+filepath.ToSlash(bundle.Executable))
+	for _, file := range bundle.Files {
+		remoteFile := remote + "/" + filepath.ToSlash(file.Path)
+		check += " && test \"$(sha256sum " + shellQuote(remoteFile) + " | awk '{print $1}')\" = " + shellQuote(strings.ToLower(file.SHA256))
+	}
+	if _, err := s.run(ctx, check); err == nil {
+		return remote + "/" + filepath.ToSlash(bundle.Executable), nil
+	}
+	stage := remote + ".installing"
+	if _, err := s.run(ctx, "rm -rf "+shellQuote(stage)+" && mkdir -p "+shellQuote(stage)); err != nil {
+		return "", fmt.Errorf("create remote runtime cache: %w", err)
+	}
+	for _, file := range bundle.Files {
+		local := filepath.Join(bundle.Directory, filepath.FromSlash(file.Path))
+		remoteFile := stage + "/" + filepath.ToSlash(file.Path)
+		if slash := strings.LastIndex(remoteFile, "/"); slash > 0 {
+			if _, err := s.run(ctx, "mkdir -p "+shellQuote(remoteFile[:slash])); err != nil {
+				return "", err
+			}
+		}
+		if out, err := s.copy(ctx, local, remoteFile+".part"); err != nil {
+			return "", fmt.Errorf("copy runtime file %s: %w: %s", file.Path, err, strings.TrimSpace(string(out)))
+		}
+		verify := "test \"$(sha256sum " + shellQuote(remoteFile+".part") + " | awk '{print $1}')\" = " + shellQuote(strings.ToLower(file.SHA256)) + " && mv -f " + shellQuote(remoteFile+".part") + " " + shellQuote(remoteFile)
+		if out, err := s.run(ctx, verify); err != nil {
+			return "", fmt.Errorf("remote runtime checksum failed for %s: %w: %s", file.Path, err, strings.TrimSpace(string(out)))
+		}
+	}
+	if out, err := s.copy(ctx, filepath.Join(bundle.Directory, "manifest.json"), stage+"/manifest.json"); err != nil {
+		return "", fmt.Errorf("copy runtime manifest: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	exe := stage + "/" + filepath.ToSlash(bundle.Executable)
+	commit := "chmod +x " + shellQuote(exe) + " && rm -rf " + shellQuote(remote) + " && mv " + shellQuote(stage) + " " + shellQuote(remote)
+	if out, err := s.run(ctx, commit); err != nil {
+		return "", fmt.Errorf("commit remote runtime: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return remote + "/" + filepath.ToSlash(bundle.Executable), nil
 }
 func (s *SSHTarget) ResolvePath(local string) string {
 	s.mu.Lock()
@@ -144,7 +193,7 @@ func (s *SSHTarget) PrepareModel(ctx context.Context, m *models.Installed) error
 	return nil
 }
 func (s *SSHTarget) Inspect(ctx context.Context) (Hardware, error) {
-	script := `printf 'BP_OS='; (. /etc/os-release 2>/dev/null; printf '%s\n' "${PRETTY_NAME:-Linux}"); printf 'BP_ARCH='; uname -m; printf 'BP_CPU='; (lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1); printf 'BP_CORES='; getconf _NPROCESSORS_ONLN; printf 'BP_RAM_KB='; awk '/MemTotal/{print $2}' /proc/meminfo; printf 'BP_DISK_KB='; df -Pk "$HOME" | awk 'NR==2{print $4}'; printf 'BP_RUNTIME='; (command -v llama-server >/dev/null && printf yes || printf no); printf '\n'; if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | sed 's/^/BP_GPU=/' ; fi; printf 'BP_CUDA='; (command -v nvcc >/dev/null && printf yes || printf no); printf '\n'`
+	script := `printf 'BP_OS='; (. /etc/os-release 2>/dev/null; printf '%s\n' "${PRETTY_NAME:-Linux}"); printf 'BP_ARCH='; uname -m; printf 'BP_CPU='; (lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1); printf 'BP_CORES='; getconf _NPROCESSORS_ONLN; printf 'BP_RAM_KB='; awk '/MemTotal/{print $2}' /proc/meminfo; printf 'BP_DISK_KB='; df -Pk "$HOME" | awk 'NR==2{print $4}'; printf 'BP_RUNTIME='; (command -v sha256sum >/dev/null && printf yes || printf no); printf '\n'; if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | sed 's/^/BP_GPU=/' ; fi; printf 'BP_CUDA='; (command -v nvidia-smi >/dev/null && printf yes || printf no); printf '\n'; printf 'BP_VULKAN='; (command -v vulkaninfo >/dev/null && printf yes || printf no); printf '\n'`
 	out, err := s.run(ctx, script)
 	if err != nil {
 		return Hardware{}, fmt.Errorf("inspect SSH target: %w: %s", err, strings.TrimSpace(string(out)))
@@ -176,6 +225,10 @@ func (s *SSHTarget) Inspect(ctx context.Context) (Hardware, error) {
 		case "BP_CUDA":
 			if value == "yes" {
 				h.Backends = append(h.Backends, "cuda")
+			}
+		case "BP_VULKAN":
+			if value == "yes" {
+				h.Backends = append(h.Backends, "vulkan")
 			}
 		case "BP_GPU":
 			parts := strings.Split(value, ",")

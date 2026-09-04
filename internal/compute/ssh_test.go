@@ -2,7 +2,11 @@ package compute
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,5 +100,36 @@ func TestSSHRejectsUnsafeConfiguration(t *testing.T) {
 		if err := NewSSH(config).validate(); err == nil {
 			t.Fatalf("accepted %#v", config)
 		}
+	}
+}
+
+func TestSSHBootstrapsAndVerifiesManagedRuntime(t *testing.T) {
+	runner := &recordingSSHRunner{}
+	target := NewSSH(SSHConfig{ID: "gpu", Host: "known.example", User: "alice"})
+	target.Runner = runner
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "llama-server"), []byte("server"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("server"))
+	exe, err := target.PrepareRuntime(context.Background(), RuntimeBundle{Engine: "llama.cpp", Version: "b1", Variant: "linux-amd64-cpu", Directory: dir, Executable: "llama-server", Files: []RuntimeFile{{Path: "llama-server", SHA256: fmt.Sprintf("%x", sum)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exe != "/home/test/.backpack/runtimes/llama.cpp/b1/linux-amd64-cpu/llama-server" {
+		t.Fatalf("executable %q", exe)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	if !strings.Contains(joined, "sha256sum") || !strings.Contains(joined, ".backpack/runtimes/llama.cpp/b1/linux-amd64-cpu") {
+		t.Fatalf("calls:\n%s", joined)
+	}
+	if strings.Contains(joined, "command -v llama-server") {
+		t.Fatal("required global llama-server")
+	}
+	if !strings.Contains(joined, "scp ") {
+		t.Fatal("runtime was not transferred")
 	}
 }

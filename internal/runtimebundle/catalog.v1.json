@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-08-27.1",
+  "runtimes": [{
+    "engine": "llama.cpp",
+    "version": "b10618",
+    "compatible_revisions": ["de699957b92f490efebad149665b0dccf127eaff"],
+    "source": {
+      "project": "llama.cpp",
+      "repository": "https://github.com/ggml-org/llama.cpp",
+      "revision": "b10618",
+      "attestation": "https://github.com/ggml-org/llama.cpp/attestations/42781020"
+    },
+    "license": "MIT",
+    "license_artifacts": [{
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b10618/LICENSE",
+      "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+      "format": "file",
+      "path": "LICENSE-llama.cpp"
+    }],
+    "capabilities": ["chat", "completion"],
+    "variants": [
+      {"id":"windows-amd64-cuda12","os":"windows","architecture":"amd64","backend":"cuda","executable":"llama-server.exe","artifacts":[
+        {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/llama-b10618-bin-win-cuda-12.4-x64.zip","sha256":"0df12f4110f8fb20bebbf02b176b760709556e864ae6ae5d2d7e43eb6d59718c","format":"zip"},
+        {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/cudart-llama-bin-win-cuda-12.4-x64.zip","sha256":"8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6","format":"zip"}
+      ]},
+      {"id":"windows-amd64-vulkan","os":"windows","architecture":"amd64","backend":"vulkan","executable":"llama-server.exe","artifacts":[
+        {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/llama-b10618-bin-win-vulkan-x64.zip","sha256":"95f8f10c6c4a67b33b1cf2cb93afc745a8212d9b1ec493d16388fe9c5d1e2063","format":"zip"}
+      ]},
+      {"id":"windows-amd64-cpu","os":"windows","architecture":"amd64","backend":"cpu","executable":"llama-server.exe","artifacts":[
+        {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/llama-b10618-bin-win-cpu-x64.zip","sha256":"ce26f4e06c737b41693e55a9fbda24d06301a1c7b55995847ed980a29e38f66a","format":"zip"}
+      ]},
+      {"id":"linux-amd64-vulkan","os":"linux","architecture":"amd64","backend":"vulkan","executable":"llama-server","artifacts":[
+        {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/llama-b10618-bin-ubuntu-vulkan-x64.tar.gz","sha256":"c40b538b6dcdc1e2ad104ba8685f799999939f079b86f461fd7534ce4c4704d0","format":"tar.gz"}
+      ]},
+      {"id":"linux-amd64-cpu","os":"linux","architecture":"amd64","backend":"cpu","executable":"llama-server","artifacts":[
+        {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/llama-b10618-bin-ubuntu-x64.tar.gz","sha256":"3fcaa7fa4fa1f23251c1fc7042c3e6ed4eea5c4ce68e832ddb034a71b4faed00","format":"tar.gz"}
+      ]},
+      {"id":"macos-arm64-metal","os":"darwin","architecture":"arm64","backend":"metal","executable":"llama-server","artifacts":[
+        {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/llama-b10618-bin-macos-arm64.tar.gz","sha256":"b32b9b3f5b8412fc858ccde7b2d0503ea373657e7b7bb85c161e0588ca34128f","format":"tar.gz"}
+      ]}
+    ]
+  }]
+}

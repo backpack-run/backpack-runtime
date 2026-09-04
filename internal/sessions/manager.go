@@ -81,7 +81,10 @@ func (m *Manager) Create(ctx context.Context, request CreateRequest) (*backrunti
 	}
 	installed, err := m.models.Installed(entry.ID)
 	if err != nil {
-		return nil, err
+		installed, err = m.models.Pull(ctx, entry, nil)
+		if err != nil {
+			return nil, fmt.Errorf("install model %s: %w", entry.ID, err)
+		}
 	}
 	adapter, err := m.registry.Select(installed.Runtime)
 	if err != nil {
