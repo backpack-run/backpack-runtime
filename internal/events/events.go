@@ -13,6 +13,7 @@ const (
 )
 
 type Event struct {
+	Type       string    `json:"type,omitempty"`
 	Kind       Kind      `json:"kind"`
 	Message    string    `json:"message,omitempty"`
 	Current    int64     `json:"current,omitempty"`
@@ -20,6 +21,20 @@ type Event struct {
 	Percentage float64   `json:"percentage,omitempty"`
 	At         time.Time `json:"at"`
 }
+
+const (
+	ModelResolve          = "model.resolve"
+	ModelDownloadStarted  = "model.download.started"
+	ModelDownloadProgress = "model.download.progress"
+	ModelVerifyComplete   = "model.verify.complete"
+	RuntimePreparing      = "runtime.prepare"
+	RuntimeStarting       = "runtime.starting"
+	RuntimeReady          = "runtime.ready"
+	GenerationToken       = "generation.token"
+	GenerationComplete    = "generation.complete"
+	RuntimeError          = "runtime.error"
+	ModelSyncProgress     = "model.sync.progress"
+)
 
 type Sink func(Event)
 

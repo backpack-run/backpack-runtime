@@ -39,7 +39,7 @@ func (m *Manager) Pull(ctx context.Context, entry catalog.Model, sink events.Sin
 	if err := m.Paths.Ensure(); err != nil {
 		return nil, err
 	}
-	events.Emit(sink, events.Event{Kind: events.Status, Message: "Resolving package manifest"})
+	events.Emit(sink, events.Event{Type: events.ModelResolve, Kind: events.Status, Message: "Resolving package manifest"})
 	manifestURL := hfURL(m.BaseURL, entry.Repository, entry.Revision, "backpack-model.yaml")
 	manifestBytes, err := m.get(ctx, manifestURL)
 	if err != nil {
@@ -82,7 +82,7 @@ func (m *Manager) Pull(ctx context.Context, entry catalog.Model, sink events.Sin
 	record := struct{ Repository, Revision, Package string }{entry.Repository, entry.Revision, pkg.ID}
 	state, _ := json.MarshalIndent(record, "", "  ")
 	_ = atomicWrite(filepath.Join(m.Paths.Manifests, entry.ID+".json"), state)
-	events.Emit(sink, events.Event{Kind: events.Complete, Message: "Package installed and verified"})
+	events.Emit(sink, events.Event{Type: events.ModelVerifyComplete, Kind: events.Complete, Message: "Package installed and verified"})
 	return &Installed{entry.ID, entry.Repository, entry.Revision, dir, manifest, pkg, manifest.RuntimeFor(pkg)}, nil
 }
 
@@ -228,7 +228,7 @@ func (p *progressReader) Read(b []byte) (int, error) {
 		if p.total > 0 {
 			pct = 100 * float64(p.current) / float64(p.total)
 		}
-		events.Emit(p.sink, events.Event{Kind: events.Progress, Message: p.label, Current: p.current, Total: p.total, Percentage: pct})
+		events.Emit(p.sink, events.Event{Type: events.ModelDownloadProgress, Kind: events.Progress, Message: p.label, Current: p.current, Total: p.total, Percentage: pct})
 		p.last = time.Now()
 	}
 	return n, err

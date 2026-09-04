@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/models"
@@ -14,9 +15,16 @@ type StartOptions struct {
 	Port, ContextSize, GPULayers int
 }
 type Session struct {
-	ID, ModelID, Runtime, Compute, Endpoint, Status string
-	PID                                             int
-	Process                                         compute.Process
+	ID        string          `json:"id"`
+	ModelID   string          `json:"model_id"`
+	Runtime   string          `json:"runtime"`
+	Compute   string          `json:"compute"`
+	Endpoint  string          `json:"endpoint,omitempty"`
+	Status    string          `json:"status"`
+	PID       int             `json:"pid,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+	LastError string          `json:"last_error,omitempty"`
+	Process   compute.Process `json:"-"`
 }
 type Adapter interface {
 	Name() string

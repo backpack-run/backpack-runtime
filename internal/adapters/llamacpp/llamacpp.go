@@ -29,7 +29,10 @@ func (a *Adapter) Supports(r models.RuntimeRequirement) bool {
 	return backruntime.SameEngine(r.Engine, "llama.cpp")
 }
 func (a *Adapter) Capabilities() []string { return []string{"chat", "completion"} }
-func (a *Adapter) executable() (string, error) {
+func (a *Adapter) executable(target compute.Target) (string, error) {
+	if target.Kind() == "ssh" {
+		return "llama-server", nil
+	}
 	if x := os.Getenv("BACKPACK_LLAMA_SERVER"); x != "" {
 		if _, err := os.Stat(x); err == nil {
 			return x, nil
@@ -48,18 +51,24 @@ func (a *Adapter) executable() (string, error) {
 	}
 	return "", fmt.Errorf("llama.cpp server is not installed; set BACKPACK_LLAMA_SERVER or place %s in %s", name, filepath.Dir(candidate))
 }
-func (a *Adapter) Prepare(_ context.Context, m *models.Installed, _ compute.Target) error {
+func (a *Adapter) Prepare(ctx context.Context, m *models.Installed, target compute.Target) error {
 	if m.Runtime.Environment != "native-process" && m.Runtime.Environment != "" {
 		return fmt.Errorf("llama.cpp package requires unexpected environment %q", m.Runtime.Environment)
 	}
 	if _, err := os.Stat(m.Entrypoint()); err != nil {
 		return fmt.Errorf("model artifact is missing: %w", err)
 	}
-	_, err := a.executable()
+	if err := target.Prepare(ctx); err != nil {
+		return err
+	}
+	if err := target.PrepareModel(ctx, m); err != nil {
+		return err
+	}
+	_, err := a.executable(target)
 	return err
 }
 func (a *Adapter) Start(ctx context.Context, m *models.Installed, target compute.Target, o backruntime.StartOptions) (*backruntime.Session, error) {
-	exe, err := a.executable()
+	exe, err := a.executable(target)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +87,7 @@ func (a *Adapter) Start(ctx context.Context, m *models.Installed, target compute
 			o.ContextSize = 8192
 		}
 	}
-	args := []string{"--model", m.Entrypoint(), "--host", o.Host, "--port", fmt.Sprint(o.Port), "--ctx-size", fmt.Sprint(o.ContextSize), "--n-gpu-layers", fmt.Sprint(o.GPULayers), "--alias", m.ID}
+	args := []string{"--model", target.ResolvePath(m.Entrypoint()), "--host", o.Host, "--port", fmt.Sprint(o.Port), "--ctx-size", fmt.Sprint(o.ContextSize), "--n-gpu-layers", fmt.Sprint(o.GPULayers), "--alias", m.ID}
 	logPath := filepath.Join(a.Paths.Logs, "llama-"+m.ID+".log")
 	_ = os.MkdirAll(a.Paths.Logs, 0700)
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
@@ -90,7 +99,7 @@ func (a *Adapter) Start(ctx context.Context, m *models.Installed, target compute
 		log.Close()
 		return nil, fmt.Errorf("start llama.cpp: %w", err)
 	}
-	s := &backruntime.Session{ID: fmt.Sprintf("%s-%d", m.ID, process.PID()), ModelID: m.ID, Runtime: a.Name(), Compute: target.Name(), Endpoint: fmt.Sprintf("http://%s:%d", o.Host, o.Port), Status: "starting", PID: process.PID(), Process: process}
+	s := &backruntime.Session{ID: fmt.Sprintf("%s-%d", m.ID, process.PID()), ModelID: m.ID, Runtime: a.Name(), Compute: target.Name(), Endpoint: fmt.Sprintf("http://%s:%d", o.Host, o.Port), Status: "starting", PID: process.PID(), Process: process, CreatedAt: time.Now().UTC()}
 	healthCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := a.Health(healthCtx, s); err != nil {
