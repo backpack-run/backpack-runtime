@@ -1,0 +1,28 @@
+version: 2
+project_name: backpack
+builds:
+  - id: backpack
+    main: ./cmd/backpack
+    binary: backpack
+    env: [CGO_ENABLED=0]
+    goos: [windows, linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - {goos: windows, goarch: arm64}
+      - {goos: linux, goarch: arm64}
+      - {goos: darwin, goarch: amd64}
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.buildDate={{.Date}}
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md, THIRD_PARTY_NOTICES.md]
+checksum:
+  name_template: checksums.txt
+release:
+  draft: true
+  replace_existing_draft: true
+changelog:
+  use: github-native
