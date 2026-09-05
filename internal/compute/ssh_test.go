@@ -100,6 +100,7 @@ func TestSSHStagesContentAddressedInputAndRunsWithoutTunnel(t *testing.T) {
 	runner := &recordingSSHRunner{}
 	target := NewSSH(SSHConfig{ID: "gpu", Host: "known.example", User: "alice"})
 	target.Runner = runner
+	target.Rsync = ""
 	input := filepath.Join(t.TempDir(), "sample.wav")
 	if err := os.WriteFile(input, []byte("audio"), 0600); err != nil {
 		t.Fatal(err)
@@ -174,6 +175,7 @@ func TestSSHBootstrapsAndVerifiesManagedRuntime(t *testing.T) {
 	runner := &recordingSSHRunner{}
 	target := NewSSH(SSHConfig{ID: "gpu", Host: "known.example", User: "alice"})
 	target.Runner = runner
+	target.Rsync = ""
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "llama-server"), []byte("server"), 0700); err != nil {
 		t.Fatal(err)
