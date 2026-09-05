@@ -35,6 +35,36 @@ type Adapter interface {
 	Stop(context.Context, *Session) error
 	Capabilities() []string
 }
+type TranscriptionRequest struct {
+	AudioPath string
+	Language  string
+	Force     bool
+}
+type Transcription struct {
+	Text     string `json:"text"`
+	Language string `json:"language,omitempty"`
+	Model    string `json:"model"`
+}
+type Transcriber interface {
+	Transcribe(context.Context, *models.Installed, compute.Target, TranscriptionRequest) (*Transcription, error)
+}
+type SessionTranscriber interface {
+	TranscribeSession(context.Context, *Session, TranscriptionRequest) (*Transcription, error)
+}
+type SpeechRequest struct {
+	Input, Voice, Format string
+	Speed                float64
+	Force                bool
+}
+type Speech struct {
+	Audio      []byte
+	Format     string
+	SampleRate int
+	Model      string
+}
+type SessionSynthesizer interface {
+	SynthesizeSession(context.Context, *Session, SpeechRequest) (*Speech, error)
+}
 type Registry struct{ adapters []Adapter }
 
 func NewRegistry(adapters ...Adapter) *Registry { return &Registry{adapters} }

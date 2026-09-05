@@ -8,11 +8,15 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
+	"github.com/backpack-run/backpack-runtime/internal/events"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
 	"github.com/backpack-run/backpack-runtime/internal/sessions"
@@ -27,14 +31,24 @@ type SessionService interface {
 	Endpoint(string) (string, error)
 }
 
+type TranscriptionService interface {
+	Transcribe(context.Context, string, string, backruntime.TranscriptionRequest) (*backruntime.Transcription, error)
+}
+type SpeechService interface {
+	Synthesize(context.Context, string, string, backruntime.SpeechRequest) (*backruntime.Speech, error)
+}
+
 type Server struct {
 	Version  string
 	Catalog  catalog.Catalog
 	Models   *models.Manager
 	Sessions SessionService
+	Audio    TranscriptionService
+	Speech   SpeechService
 	Hardware func() (compute.Hardware, error)
 	Client   *http.Client
 	Targets  compute.TargetStore
+	Events   *events.Broker
 }
 
 func (s *Server) Handler() http.Handler {
@@ -84,7 +98,141 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/backpack/v1/sessions/{id}", s.getSession)
 	mux.HandleFunc("DELETE /api/backpack/v1/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
+	mux.HandleFunc("POST /v1/audio/transcriptions", s.transcriptions)
+	mux.HandleFunc("POST /v1/audio/speech", s.speech)
+	mux.HandleFunc("GET /api/backpack/v1/events", s.eventStream)
 	return security(mux)
+}
+
+func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
+	if s.Events == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("event stream is not configured"))
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("streaming is unavailable"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	channel, unsubscribe := s.Events.Subscribe()
+	defer unsubscribe()
+	_, _ = io.WriteString(w, ": connected\n\n")
+	flusher.Flush()
+	for {
+		select {
+		case event := <-channel:
+			data, _ := json.Marshal(event)
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (s *Server) speech(w http.ResponseWriter, r *http.Request) {
+	if s.Speech == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("speech service is not configured"))
+		return
+	}
+	var request struct {
+		Model, Input, Voice, Format, Compute string
+		Speed                                float64
+		Force                                bool
+	}
+	if err := decode(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(request.Model) == "" || strings.TrimSpace(request.Input) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("model and input are required"))
+		return
+	}
+	if len(request.Input) > 12000 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("input exceeds 12000 characters"))
+		return
+	}
+	if request.Format == "" {
+		request.Format = "wav"
+	}
+	if request.Format != "wav" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("only wav output is currently supported"))
+		return
+	}
+	if request.Speed == 0 {
+		request.Speed = 1
+	}
+	if request.Speed < 0.5 || request.Speed > 2 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("speed must be between 0.5 and 2.0"))
+		return
+	}
+	result, err := s.Speech.Synthesize(r.Context(), request.Model, request.Compute, backruntime.SpeechRequest{Input: request.Input, Voice: request.Voice, Format: request.Format, Speed: request.Speed, Force: request.Force})
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	w.Header().Set("Content-Type", "audio/wav")
+	w.Header().Set("X-Backpack-Model", result.Model)
+	w.Header().Set("X-Backpack-Sample-Rate", fmt.Sprint(result.SampleRate))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(result.Audio)
+}
+
+func (s *Server) transcriptions(w http.ResponseWriter, r *http.Request) {
+	if s.Audio == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("transcription service is not configured"))
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<30)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid multipart request: %w", err))
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	model := strings.TrimSpace(r.FormValue("model"))
+	if model == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("model is required"))
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("audio file is required: %w", err))
+		return
+	}
+	defer file.Close()
+	uploadDir := filepath.Join(os.TempDir(), "backpack-runtime-uploads")
+	if err = os.MkdirAll(uploadDir, 0700); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	ext := filepath.Ext(filepath.Base(header.Filename))
+	temporary, err := os.CreateTemp(uploadDir, "audio-*"+ext)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	path := temporary.Name()
+	defer os.Remove(path)
+	if _, err = io.Copy(temporary, file); err != nil {
+		_ = temporary.Close()
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err = temporary.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	force, _ := strconv.ParseBool(r.FormValue("force"))
+	result, err := s.Audio.Transcribe(r.Context(), model, r.FormValue("compute"), backruntime.TranscriptionRequest{AudioPath: path, Language: r.FormValue("language"), Force: force})
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	write(w, http.StatusOK, result)
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {

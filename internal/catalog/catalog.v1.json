@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.09.04",
+  "catalog_version": "2026.09.05",
   "models": [
     {"id":"smollm2-135m-instruct","aliases":["smollm2-135m"],"display_name":"SmolLM2 135M Instruct","repository":"backpack-run/SmolLM2-135M-Instruct-GGUF","revision":"c6bd4cde2422fa874953b15ac830fabfae34abcf","capabilities":["chat"],"runtime_engine":"llama.cpp","status":"supported"},
     {"id":"smollm2-1-7b-instruct","aliases":["smollm2-1.7b"],"display_name":"SmolLM2 1.7B Instruct","repository":"backpack-run/SmolLM2-1.7B-Instruct-GGUF","revision":"ed777278034b1574c56c5e24f48b95208a171873","capabilities":["chat"],"runtime_engine":"llama.cpp","status":"experimental"},
@@ -8,9 +8,9 @@
     {"id":"qwen3-coder-next","aliases":["qwen3-coder-next"],"display_name":"Qwen3-Coder Next","repository":"backpack-run/Qwen3-Coder-Next-GGUF","revision":"5b8950c7d501e7eaed240d2174ff4813debd0951","capabilities":["chat","code"],"runtime_engine":"llama.cpp","status":"experimental"},
     {"id":"qwen3-coder-30b-a3b-instruct","aliases":["qwen3-coder-30b-a3b"],"display_name":"Qwen3-Coder 30B A3B Instruct","repository":"backpack-run/Qwen3-Coder-30B-A3B-Instruct-GGUF","revision":"54366ea27801847c22ea8aa56c977c0fa3d2aa9a","capabilities":["chat","code"],"runtime_engine":"llama.cpp","status":"experimental"},
     {"id":"devstral-small-2-24b-instruct-2512","aliases":["devstral-small-24b"],"display_name":"Devstral Small 2 24B Instruct 2512","repository":"backpack-run/Devstral-Small-2-24B-Instruct-2512-GGUF","revision":"a2d1a878ecea60d1840527bcd0929d065b8510d4","capabilities":["chat","code","vision"],"runtime_engine":"llama.cpp","status":"experimental"},
-    {"id":"whisper-large-v3-turbo","aliases":["whisper-large-v3-turbo"],"display_name":"Whisper Large v3 Turbo","repository":"backpack-run/whisper-large-v3-turbo-Backpack-ASR","revision":"86aee2d223dea0a1ea667b3f7dfd4b9c1e275ca9","capabilities":["transcription"],"runtime_engine":"whisper.cpp","status":"runtime-required"},
-    {"id":"qwen3-asr-0.6b","aliases":["qwen3-asr-0.6b"],"display_name":"Qwen3 ASR 0.6B","repository":"backpack-run/Qwen3-ASR-0.6B-Backpack-ASR","revision":"32bc4597db92564b188f7782c8c27c3b09378eff","capabilities":["transcription"],"runtime_engine":"qwen-asr","status":"runtime-required"},
-    {"id":"kokoro-82m","aliases":["kokoro-82m"],"display_name":"Kokoro 82M","repository":"backpack-run/Kokoro-82M-Backpack-TTS","revision":"40287c6c2abe5771d000a38ee06b8aeb07eb037e","capabilities":["speech"],"runtime_engine":"kokoro","status":"runtime-required"},
+    {"id":"whisper-large-v3-turbo","aliases":["whisper-large-v3-turbo"],"display_name":"Whisper Large v3 Turbo","repository":"backpack-run/whisper-large-v3-turbo-Backpack-ASR","revision":"86aee2d223dea0a1ea667b3f7dfd4b9c1e275ca9","capabilities":["transcription"],"runtime_engine":"whisper.cpp","status":"supported"},
+    {"id":"qwen3-asr-0.6b","aliases":["qwen3-asr-0.6b"],"display_name":"Qwen3 ASR 0.6B","repository":"backpack-run/Qwen3-ASR-0.6B-Backpack-ASR","revision":"32bc4597db92564b188f7782c8c27c3b09378eff","capabilities":["transcription"],"runtime_engine":"qwen-asr","status":"supported"},
+    {"id":"kokoro-82m","aliases":["kokoro-82m"],"display_name":"Kokoro 82M","repository":"backpack-run/Kokoro-82M-Backpack-TTS","revision":"40287c6c2abe5771d000a38ee06b8aeb07eb037e","capabilities":["speech"],"runtime_engine":"kokoro","status":"supported"},
     {"id":"z-image-turbo","aliases":["z-image-turbo"],"display_name":"Z-Image-Turbo","repository":"backpack-run/Z-Image-Turbo-Backpack-Image","revision":"c093bae5c6fd3d8cdaf9c3591175b9e4eaa14869","capabilities":["image-generation"],"runtime_engine":"diffusers","status":"package-change-required"},
     {"id":"wan2.2-ti2v-5b","aliases":["wan2.2-ti2v-5b"],"display_name":"Wan2.2 TI2V-5B","repository":"backpack-run/Wan2.2-TI2V-5B-Backpack-Video","revision":"7ec39050b342f49ebab29d1dd7c55bd393805060","capabilities":["video-generation"],"runtime_engine":"diffusers","status":"package-change-required"}
   ]

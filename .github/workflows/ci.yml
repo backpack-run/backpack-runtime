@@ -11,7 +11,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
-      - run: gofmt -w cmd internal
+      - run: gofmt -w cmd internal pkg
       - run: git diff --exit-code
       - run: go vet ./...
       - run: go test ./...

@@ -2,6 +2,8 @@ package compute
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -192,6 +194,46 @@ func (s *SSHTarget) PrepareModel(ctx context.Context, m *models.Installed) error
 	s.mu.Unlock()
 	return nil
 }
+func (s *SSHTarget) PrepareFile(ctx context.Context, local string) (string, error) {
+	f, err := os.Open(local)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(h, f)
+	_ = f.Close()
+	if err != nil {
+		return "", err
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	s.mu.Lock()
+	home := s.home
+	s.mu.Unlock()
+	if home == "" {
+		if err = s.Prepare(ctx); err != nil {
+			return "", err
+		}
+		s.mu.Lock()
+		home = s.home
+		s.mu.Unlock()
+	}
+	remote := strings.TrimRight(home, "/") + "/" + strings.Trim(s.Config.RemoteRoot, "/") + "/inputs/" + sum + filepath.Ext(local)
+	check := "test -f " + shellQuote(remote) + " && test \"$(sha256sum " + shellQuote(remote) + " | awk '{print $1}')\" = " + shellQuote(sum)
+	if _, err = s.run(ctx, check); err == nil {
+		return remote, nil
+	}
+	if _, err = s.run(ctx, "mkdir -p "+shellQuote(remote[:strings.LastIndex(remote, "/")])); err != nil {
+		return "", err
+	}
+	if out, e := s.copy(ctx, local, remote+".part"); e != nil {
+		return "", fmt.Errorf("copy input: %w: %s", e, strings.TrimSpace(string(out)))
+	}
+	verify := "test \"$(sha256sum " + shellQuote(remote+".part") + " | awk '{print $1}')\" = " + shellQuote(sum) + " && mv -f " + shellQuote(remote+".part") + " " + shellQuote(remote)
+	if out, e := s.run(ctx, verify); e != nil {
+		return "", fmt.Errorf("verify remote input: %w: %s", e, strings.TrimSpace(string(out)))
+	}
+	return remote, nil
+}
 func (s *SSHTarget) Inspect(ctx context.Context) (Hardware, error) {
 	script := `printf 'BP_OS='; (. /etc/os-release 2>/dev/null; printf '%s\n' "${PRETTY_NAME:-Linux}"); printf 'BP_ARCH='; uname -m; printf 'BP_CPU='; (lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1); printf 'BP_CORES='; getconf _NPROCESSORS_ONLN; printf 'BP_RAM_KB='; awk '/MemTotal/{print $2}' /proc/meminfo; printf 'BP_DISK_KB='; df -Pk "$HOME" | awk 'NR==2{print $4}'; printf 'BP_RUNTIME='; (command -v sha256sum >/dev/null && printf yes || printf no); printf '\n'; if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | sed 's/^/BP_GPU=/' ; fi; printf 'BP_CUDA='; (command -v nvidia-smi >/dev/null && printf yes || printf no); printf '\n'; printf 'BP_VULKAN='; (command -v vulkaninfo >/dev/null && printf yes || printf no); printf '\n'`
 	out, err := s.run(ctx, script)
@@ -252,15 +294,15 @@ func (s *SSHTarget) Execute(_ context.Context, c Command) (Process, error) {
 			port = c.Args[i+1]
 		}
 	}
-	if port == "" {
-		return nil, fmt.Errorf("remote command has no loopback port")
-	}
 	remote := shellQuote(c.Executable)
 	for _, arg := range c.Args {
 		remote += " " + shellQuote(arg)
 	}
 	args := s.baseArgs()
-	args = append(args, "-L", "127.0.0.1:"+port+":127.0.0.1:"+port, s.destination(), "--", remote)
+	if port != "" {
+		args = append(args, "-L", "127.0.0.1:"+port+":127.0.0.1:"+port)
+	}
+	args = append(args, s.destination(), "--", remote)
 	return s.Runner.Start("ssh", args, c.Stdout, c.Stderr)
 }
 func (s *SSHTarget) validate() error {

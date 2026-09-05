@@ -54,6 +54,9 @@ type Target interface {
 	ResolvePath(string) string
 	Execute(context.Context, Command) (Process, error)
 }
+type FilePreparer interface {
+	PrepareFile(context.Context, string) (string, error)
+}
 
 type Local struct{}
 
@@ -62,6 +65,12 @@ func (Local) Kind() string                                          { return "lo
 func (Local) Prepare(context.Context) error                         { return nil }
 func (Local) PrepareModel(context.Context, *models.Installed) error { return nil }
 func (Local) ResolvePath(path string) string                        { return path }
+func (Local) PrepareFile(_ context.Context, path string) (string, error) {
+	if _, err := os.Stat(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
 func (Local) Inspect(ctx context.Context) (Hardware, error) {
 	h := Hardware{OS: runtime.GOOS, Architecture: runtime.GOARCH, Cores: runtime.NumCPU(), Backends: []string{"cpu"}}
 	if runtime.GOOS == "windows" {

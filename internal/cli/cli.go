@@ -7,12 +7,16 @@ import (
 	"flag"
 	"fmt"
 	"github.com/backpack-run/backpack-runtime/internal/adapters/llamacpp"
+	"github.com/backpack-run/backpack-runtime/internal/adapters/pythonworker"
+	"github.com/backpack-run/backpack-runtime/internal/adapters/whispercpp"
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/daemon"
 	"github.com/backpack-run/backpack-runtime/internal/events"
+	"github.com/backpack-run/backpack-runtime/internal/fit"
 	"github.com/backpack-run/backpack-runtime/internal/models"
+	"github.com/backpack-run/backpack-runtime/internal/pythonruntime"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
 	"github.com/backpack-run/backpack-runtime/internal/runtimebundle"
 	"github.com/backpack-run/backpack-runtime/internal/server"
@@ -21,6 +25,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -34,6 +39,9 @@ type app struct {
 	models   *models.Manager
 	local    compute.Local
 	llama    *llamacpp.Adapter
+	whisper  *whispercpp.Adapter
+	qwenASR  *pythonworker.Adapter
+	kokoro   *pythonworker.Adapter
 	runtimes *runtimebundle.Manager
 	registry *backruntime.Registry
 }
@@ -53,8 +61,12 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return err
 	}
 	llama := &llamacpp.Adapter{Paths: paths, Runtimes: runtimes}
-	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, runtimes: runtimes}
-	a.registry = backruntime.NewRegistry(llama)
+	whisper := &whispercpp.Adapter{Paths: paths, Runtimes: runtimes}
+	pythonEnvironments := &pythonruntime.Manager{Paths: paths, Runtimes: runtimes}
+	qwenASR := &pythonworker.Adapter{Engine: "qwen-asr", Provides: []string{"transcription"}, Paths: paths, Environments: pythonEnvironments}
+	kokoro := &pythonworker.Adapter{Engine: "kokoro", Provides: []string{"speech"}, Paths: paths, Environments: pythonEnvironments}
+	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, whisper: whisper, qwenASR: qwenASR, kokoro: kokoro, runtimes: runtimes}
+	a.registry = backruntime.NewRegistry(llama, whisper, qwenASR, kokoro)
 	if len(args) == 0 {
 		return a.help()
 	}
@@ -76,6 +88,10 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.hardware(ctx)
 	case "run":
 		return a.run(ctx, args[1:])
+	case "transcribe":
+		return a.transcribe(ctx, args[1:])
+	case "speak":
+		return a.speak(ctx, args[1:])
 	case "serve":
 		return a.serve(ctx, args[1:])
 	case "ps":
@@ -103,6 +119,8 @@ Usage: backpack <command>
   inspect <model>         show manifest/runtime compatibility
   hardware                inspect local compute
   run <model> [flags]     create an API-owned session and chat
+  transcribe <audio>      transcribe audio through the runtime API
+  speak <text>            synthesize speech through the runtime API
   serve [--address addr]  start the loopback runtime API
   ps                      list runtime-owned sessions
   stop <session>          gracefully stop a session
@@ -110,9 +128,124 @@ Usage: backpack <command>
   runtime <command>       inspect and manage inference runtimes
   version
 
-Run flags: --prompt text --context tokens --gpu-layers auto|n --keep-alive --detach
+Run flags: --prompt text --context tokens --gpu-layers auto|n --keep-alive --detach --force
 `)
 	return nil
+}
+
+func (a *app) transcribe(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target]")
+	}
+	audioPath := args[0]
+	fs := flag.NewFlagSet("transcribe", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	model := fs.String("model", "whisper-large-v3-turbo", "transcription model")
+	language := fs.String("language", "", "language code; auto-detect when omitted")
+	computeName := fs.String("compute", "local", "compute target")
+	force := fs.Bool("force", false, "run even when model fit recommends remote compute")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: backpack transcribe <audio-file> [flags]")
+	}
+	if _, err := os.Stat(audioPath); err != nil {
+		return fmt.Errorf("audio input: %w", err)
+	}
+	api, err := daemon.Ensure(ctx, a.paths, a.version)
+	if err != nil {
+		return err
+	}
+	stopEvents := a.watchEvents(ctx, api)
+	defer stopEvents()
+	result, err := api.Transcribe(ctx, clientapi.TranscriptionRequest{Model: *model, AudioPath: audioPath, Language: *language, Compute: *computeName, Force: *force})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.out, result.Text)
+	return nil
+}
+
+func (a *app) speak(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: backpack speak <text> --output file.wav [flags]")
+	}
+	input := args[0]
+	fs := flag.NewFlagSet("speak", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	model := fs.String("model", "kokoro-82m", "speech model")
+	voice := fs.String("voice", "af_heart", "voice name")
+	output := fs.String("output", "", "output WAV path")
+	speed := fs.Float64("speed", 1, "speech speed from 0.5 to 2.0")
+	computeName := fs.String("compute", "local", "compute target")
+	force := fs.Bool("force", false, "overwrite an existing output file")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *output == "" {
+		return fmt.Errorf("usage: backpack speak <text> --output file.wav [flags]")
+	}
+	if *speed < 0.5 || *speed > 2 {
+		return fmt.Errorf("--speed must be between 0.5 and 2.0")
+	}
+	if _, err := os.Stat(*output); err == nil && !*force {
+		return fmt.Errorf("output %q already exists; use --force to overwrite it", *output)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	api, err := daemon.Ensure(ctx, a.paths, a.version)
+	if err != nil {
+		return err
+	}
+	stopEvents := a.watchEvents(ctx, api)
+	defer stopEvents()
+	audio, err := api.Speech(ctx, clientapi.SpeechRequest{Model: *model, Input: input, Voice: *voice, Format: "wav", Compute: *computeName, Speed: *speed, Force: *force})
+	if err != nil {
+		return err
+	}
+	directory := filepath.Dir(*output)
+	if err = os.MkdirAll(directory, 0700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(directory, ".backpack-speech-*.wav")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err = temporary.Write(audio); err == nil {
+		err = temporary.Close()
+	} else {
+		_ = temporary.Close()
+	}
+	if err != nil {
+		return err
+	}
+	if *force {
+		_ = os.Remove(*output)
+	}
+	if err = os.Rename(temporaryPath, *output); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.out, "Wrote %s (%d bytes)\n", *output, len(audio))
+	return nil
+}
+
+func (a *app) watchEvents(ctx context.Context, api *clientapi.Client) context.CancelFunc {
+	eventContext, cancel := context.WithCancel(ctx)
+	go func() {
+		_ = api.Events(eventContext, func(event clientapi.Event) {
+			if event.Kind == string(events.Progress) && event.Total > 0 {
+				fmt.Fprintf(a.err, "\r%s %6.1f%%", event.Message, event.Percentage)
+				return
+			}
+			if event.Message != "" {
+				fmt.Fprintln(a.err, event.Message)
+			}
+		})
+	}()
+	return cancel
 }
 
 func (a *app) runtimeCommand(ctx context.Context, args []string) error {
@@ -255,7 +388,12 @@ func (a *app) inspect(args []string) error {
 	if _, err = a.registry.Select(m.Runtime); err != nil {
 		available = err.Error()
 	}
-	report := map[string]any{"id": m.ID, "repository": m.Repository, "revision": m.Revision, "package": m.Package, "runtime": m.Runtime, "adapter": available, "entrypoint": m.Entrypoint()}
+	hardware, hardwareErr := a.local.Inspect(context.Background())
+	var localFit any = "hardware inspection unavailable"
+	if hardwareErr == nil {
+		localFit = fit.Evaluate(m.Package, hardware)
+	}
+	report := map[string]any{"id": m.ID, "repository": m.Repository, "revision": m.Revision, "package": m.Package, "runtime": m.Runtime, "adapter": available, "entrypoint": m.Entrypoint(), "local_fit": localFit}
 	b, _ := json.MarshalIndent(report, "", "  ")
 	fmt.Fprintln(a.out, string(b))
 	return nil
@@ -282,6 +420,7 @@ func (a *app) run(ctx context.Context, args []string) error {
 	computeName := fs.String("compute", "local", "compute target")
 	keepAlive := fs.Bool("keep-alive", false, "leave the session loaded on exit")
 	detach := fs.Bool("detach", false, "create the session and return")
+	force := fs.Bool("force", false, "run even when model fit recommends remote compute")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -293,7 +432,9 @@ func (a *app) run(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintln(a.out, "Loading model...")
-	session, err := api.CreateSession(ctx, clientapi.CreateSessionRequest{Model: modelName, Compute: *computeName, Options: clientapi.SessionOptions{ContextLength: *contextSize, GPULayers: *gpu}})
+	stopEvents := a.watchEvents(ctx, api)
+	defer stopEvents()
+	session, err := api.CreateSession(ctx, clientapi.CreateSessionRequest{Model: modelName, Compute: *computeName, Options: clientapi.SessionOptions{ContextLength: *contextSize, GPULayers: *gpu, Force: *force}})
 	if err != nil {
 		return err
 	}
@@ -490,8 +631,10 @@ func (a *app) serve(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	manager := sessions.New(a.catalog, a.models, a.registry, a.paths)
-	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Targets: compute.NewTargetStore(a.paths), Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
+	broker := events.NewBroker()
+	a.runtimes.Sink = broker.Publish
+	manager := sessions.NewWithEvents(a.catalog, a.models, a.registry, a.paths, broker.Publish)
+	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Audio: manager, Speech: manager, Events: broker, Targets: compute.NewTargetStore(a.paths), Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
 	if existing, err := daemon.Read(a.paths); err == nil && existing.PID != os.Getpid() {
 		check, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 		healthErr := clientapi.New(existing.Endpoint).Health(check)

@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -24,13 +27,37 @@ type Session struct {
 	LastError string    `json:"last_error,omitempty"`
 }
 type SessionOptions struct {
-	ContextLength int `json:"context_length,omitempty"`
-	GPULayers     any `json:"gpu_layers,omitempty"`
+	ContextLength int  `json:"context_length,omitempty"`
+	GPULayers     any  `json:"gpu_layers,omitempty"`
+	Force         bool `json:"force,omitempty"`
 }
 type CreateSessionRequest struct {
 	Model   string         `json:"model"`
 	Compute string         `json:"compute,omitempty"`
 	Options SessionOptions `json:"options,omitempty"`
+}
+type Transcription struct {
+	Text     string `json:"text"`
+	Language string `json:"language,omitempty"`
+	Model    string `json:"model"`
+}
+type TranscriptionRequest struct {
+	Model, AudioPath, Language, Compute string
+	Force                               bool
+}
+type SpeechRequest struct {
+	Model, Input, Voice, Format, Compute string
+	Speed                                float64
+	Force                                bool
+}
+type Event struct {
+	Type       string    `json:"type"`
+	Kind       string    `json:"kind"`
+	Message    string    `json:"message,omitempty"`
+	Current    int64     `json:"current,omitempty"`
+	Total      int64     `json:"total,omitempty"`
+	Percentage float64   `json:"percentage,omitempty"`
+	At         time.Time `json:"at"`
 }
 
 type Client struct {
@@ -124,6 +151,102 @@ func (c *Client) Chat(ctx context.Context, model, prompt string, stream bool, on
 		if json.Unmarshal([]byte(data), &chunk) == nil && len(chunk.Choices) > 0 {
 			onData(chunk.Choices[0].Delta.Content)
 		}
+	}
+	return scanner.Err()
+}
+func (c *Client) Transcribe(ctx context.Context, request TranscriptionRequest) (*Transcription, error) {
+	file, err := os.Open(request.AudioPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("file", filepath.Base(request.AudioPath))
+	if err != nil {
+		return nil, err
+	}
+	if _, err = io.Copy(part, file); err != nil {
+		return nil, err
+	}
+	_ = form.WriteField("model", request.Model)
+	if request.Language != "" {
+		_ = form.WriteField("language", request.Language)
+	}
+	if request.Compute != "" {
+		_ = form.WriteField("compute", request.Compute)
+	}
+	if request.Force {
+		_ = form.WriteField("force", "true")
+	}
+	if err = form.Close(); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/audio/transcriptions", &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode/100 != 2 {
+		return nil, responseError(res)
+	}
+	var out Transcription
+	if err = json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+func (c *Client) Speech(ctx context.Context, request SpeechRequest) ([]byte, error) {
+	payload := map[string]any{"model": request.Model, "input": request.Input, "voice": request.Voice, "format": request.Format, "compute": request.Compute, "speed": request.Speed, "force": request.Force}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/audio/speech", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode/100 != 2 {
+		return nil, responseError(res)
+	}
+	return io.ReadAll(io.LimitReader(res.Body, 512<<20))
+}
+func (c *Client) Events(ctx context.Context, onEvent func(Event)) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/backpack/v1/events", nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode/100 != 2 {
+		return responseError(res)
+	}
+	scanner := bufio.NewScanner(res.Body)
+	scanner.Buffer(make([]byte, 4096), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var event Event
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+			return fmt.Errorf("decode runtime event: %w", err)
+		}
+		onEvent(event)
 	}
 	return scanner.Err()
 }

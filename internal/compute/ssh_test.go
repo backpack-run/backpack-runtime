@@ -95,6 +95,34 @@ func TestSSHSafeDefaultsAndCachedSync(t *testing.T) {
 		t.Fatalf("remote path %q", got)
 	}
 }
+
+func TestSSHStagesContentAddressedInputAndRunsWithoutTunnel(t *testing.T) {
+	runner := &recordingSSHRunner{}
+	target := NewSSH(SSHConfig{ID: "gpu", Host: "known.example", User: "alice"})
+	target.Runner = runner
+	input := filepath.Join(t.TempDir(), "sample.wav")
+	if err := os.WriteFile(input, []byte("audio"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := target.PrepareFile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("audio"))
+	if !strings.Contains(remote, fmt.Sprintf("inputs/%x.wav", sum)) {
+		t.Fatalf("remote input %q", remote)
+	}
+	if _, err = target.Execute(context.Background(), Command{Executable: "whisper-cli", Args: []string{"--file", remote}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := runner.started[len(runner.started)-1]; strings.Contains(got, " -L ") {
+		t.Fatalf("job unexpectedly opened a tunnel: %s", got)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	if !strings.Contains(joined, "scp ") || !strings.Contains(joined, "sha256sum") {
+		t.Fatalf("input was not copied and verified:\n%s", joined)
+	}
+}
 func TestSSHRejectsUnsafeConfiguration(t *testing.T) {
 	for _, config := range []SSHConfig{{ID: "../gpu", Host: "host"}, {ID: "gpu", Host: "host;whoami"}, {ID: "gpu", Host: "host", RemoteRoot: "../../tmp"}} {
 		if err := NewSSH(config).validate(); err == nil {

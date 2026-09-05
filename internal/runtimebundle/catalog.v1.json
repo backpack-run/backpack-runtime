@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026-08-27.1",
+  "catalog_version": "2026-09-05.1",
   "runtimes": [{
     "engine": "llama.cpp",
     "version": "b10618",
@@ -40,5 +40,49 @@
         {"url":"https://github.com/ggml-org/llama.cpp/releases/download/b10618/llama-b10618-bin-macos-arm64.tar.gz","sha256":"b32b9b3f5b8412fc858ccde7b2d0503ea373657e7b7bb85c161e0588ca34128f","format":"tar.gz"}
       ]}
     ]
+  }, {
+    "engine": "whisper.cpp",
+    "version": "eacbd8234c6654cdbf2c377f72b2106875479bdc",
+    "source": {
+      "project": "whisper.cpp",
+      "repository": "https://github.com/ggml-org/whisper.cpp",
+      "revision": "eacbd8234c6654cdbf2c377f72b2106875479bdc"
+    },
+    "license": "MIT AND Apache-2.0",
+    "capabilities": ["transcription"],
+    "variants": [{
+      "id": "windows-amd64-cpu",
+      "os": "windows",
+      "architecture": "amd64",
+      "backend": "cpu",
+      "executable": "whisper-cli.exe",
+      "artifacts": [{
+        "url": "https://huggingface.co/backpack-run/whisper-large-v3-turbo-Backpack-ASR/resolve/86aee2d223dea0a1ea667b3f7dfd4b9c1e275ca9/runtime/windows-x64/cpu/whispercpp-windows-x64-cpu.zip?download=true",
+        "sha256": "58fbdb6fd8c36b8528d8d949be5d03227bb34600a52331621130a9ea8e290f2e",
+        "format": "zip"
+      }]
+    }]
+  }, {
+    "engine": "uv",
+    "version": "0.11.15",
+    "source": {
+      "project": "uv",
+      "repository": "https://github.com/astral-sh/uv",
+      "revision": "0.11.15"
+    },
+    "license": "Apache-2.0 OR MIT",
+    "capabilities": ["python-distribution-management"],
+    "variants": [{
+      "id": "windows-amd64",
+      "os": "windows",
+      "architecture": "amd64",
+      "backend": "cpu",
+      "executable": "uv.exe",
+      "artifacts": [{
+        "url": "https://github.com/astral-sh/uv/releases/download/0.11.15/uv-x86_64-pc-windows-msvc.zip",
+        "sha256": "04b98d414a9000e25e5e0e7c9f53749e66b790cdaffc582829e6f58c544ee11c",
+        "format": "zip"
+      }]
+    }]
   }]
 }

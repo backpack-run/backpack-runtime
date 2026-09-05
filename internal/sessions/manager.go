@@ -15,13 +15,16 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/config"
+	"github.com/backpack-run/backpack-runtime/internal/events"
+	"github.com/backpack-run/backpack-runtime/internal/fit"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
 )
 
 type Options struct {
-	ContextLength int `json:"context_length,omitempty"`
-	GPULayers     any `json:"gpu_layers,omitempty"`
+	ContextLength int  `json:"context_length,omitempty"`
+	GPULayers     any  `json:"gpu_layers,omitempty"`
+	Force         bool `json:"force,omitempty"`
 }
 type CreateRequest struct {
 	Model   string  `json:"model"`
@@ -37,6 +40,7 @@ type Manager struct {
 	local    compute.Local
 	targets  map[string]compute.Target
 	sessions map[string]*managed
+	sink     events.Sink
 }
 type managed struct {
 	public  *backruntime.Session
@@ -45,8 +49,12 @@ type managed struct {
 }
 
 func New(c catalog.Catalog, mm *models.Manager, registry *backruntime.Registry, paths config.Paths) *Manager {
+	return NewWithEvents(c, mm, registry, paths, nil)
+}
+
+func NewWithEvents(c catalog.Catalog, mm *models.Manager, registry *backruntime.Registry, paths config.Paths, sink events.Sink) *Manager {
 	local := compute.Local{}
-	m := &Manager{catalog: c, models: mm, registry: registry, paths: paths, local: local, targets: map[string]compute.Target{"local": local}, sessions: map[string]*managed{}}
+	m := &Manager{catalog: c, models: mm, registry: registry, paths: paths, local: local, targets: map[string]compute.Target{"local": local}, sessions: map[string]*managed{}, sink: sink}
 	m.reconcile()
 	return m
 }
@@ -58,47 +66,26 @@ func (m *Manager) RegisterTarget(target compute.Target) {
 }
 
 func (m *Manager) Create(ctx context.Context, request CreateRequest) (*backruntime.Session, error) {
-	entry, err := m.catalog.Resolve(request.Model)
+	installed, adapter, computeTarget, err := m.resolve(ctx, request.Model, request.Compute)
 	if err != nil {
 		return nil, err
 	}
-	target := request.Compute
-	if target == "" {
-		target = "local"
-	}
-	m.mu.Lock()
-	computeTarget, ok := m.targets[target]
-	m.mu.Unlock()
-	if !ok && target != "local" {
-		if saved, err := compute.NewTargetStore(m.paths).Get(target); err == nil {
-			computeTarget = compute.NewSSH(saved)
-			m.RegisterTarget(computeTarget)
-			ok = true
-		}
-	}
-	if !ok {
-		return nil, fmt.Errorf("compute target %q is not configured", target)
-	}
-	installed, err := m.models.Installed(entry.ID)
-	if err != nil {
-		installed, err = m.models.Pull(ctx, entry, nil)
-		if err != nil {
-			return nil, fmt.Errorf("install model %s: %w", entry.ID, err)
-		}
-	}
-	adapter, err := m.registry.Select(installed.Runtime)
-	if err != nil {
+	if err = checkFit(ctx, installed, computeTarget, request.Options.Force); err != nil {
 		return nil, err
 	}
 	if err = adapter.Prepare(ctx, installed, computeTarget); err != nil {
+		events.Emit(m.sink, events.Event{Type: events.RuntimeError, Kind: events.Warning, Message: err.Error()})
 		return nil, err
 	}
+	events.Emit(m.sink, events.Event{Type: events.RuntimeStarting, Kind: events.Status, Message: "Starting " + adapter.Name()})
 	gpu, err := gpuLayers(request.Options.GPULayers)
 	if err != nil {
+		events.Emit(m.sink, events.Event{Type: events.RuntimeError, Kind: events.Warning, Message: err.Error()})
 		return nil, err
 	}
 	session, err := adapter.Start(ctx, installed, computeTarget, backruntime.StartOptions{Host: "127.0.0.1", ContextSize: request.Options.ContextLength, GPULayers: gpu})
 	if err != nil {
+		events.Emit(m.sink, events.Event{Type: events.RuntimeError, Kind: events.Warning, Message: err.Error()})
 		return nil, err
 	}
 	session.ID = newID()
@@ -107,7 +94,128 @@ func (m *Manager) Create(ctx context.Context, request CreateRequest) (*backrunti
 	m.persistLocked()
 	m.mu.Unlock()
 	go m.monitor(session.ID, session.Process)
+	events.Emit(m.sink, events.Event{Type: events.RuntimeReady, Kind: events.Complete, Message: "Ready " + session.ModelID})
 	return clone(session), nil
+}
+
+func (m *Manager) Transcribe(ctx context.Context, model, computeName string, request backruntime.TranscriptionRequest) (*backruntime.Transcription, error) {
+	installed, adapter, target, err := m.resolve(ctx, model, computeName)
+	if err != nil {
+		return nil, err
+	}
+	if err = checkFit(ctx, installed, target, request.Force); err != nil {
+		return nil, err
+	}
+	if transcriber, ok := adapter.(backruntime.Transcriber); ok {
+		if err := adapter.Prepare(ctx, installed, target); err != nil {
+			return nil, err
+		}
+		return transcriber.Transcribe(ctx, installed, target, request)
+	}
+	if transcriber, ok := adapter.(backruntime.SessionTranscriber); ok && hasCapability(adapter, "transcription") {
+		owned, err := m.ensureManaged(ctx, installed.ID, target.Name(), request.Force)
+		if err != nil {
+			return nil, err
+		}
+		return transcriber.TranscribeSession(ctx, owned.public, request)
+	}
+	return nil, fmt.Errorf("model %q uses runtime %q, which does not support transcription", installed.ID, adapter.Name())
+}
+
+func (m *Manager) Synthesize(ctx context.Context, model, computeName string, request backruntime.SpeechRequest) (*backruntime.Speech, error) {
+	installed, adapter, target, err := m.resolve(ctx, model, computeName)
+	if err != nil {
+		return nil, err
+	}
+	if err = checkFit(ctx, installed, target, request.Force); err != nil {
+		return nil, err
+	}
+	synthesizer, ok := adapter.(backruntime.SessionSynthesizer)
+	if !ok || !hasCapability(adapter, "speech") {
+		return nil, fmt.Errorf("model %q uses runtime %q, which does not support speech synthesis", installed.ID, adapter.Name())
+	}
+	owned, err := m.ensureManaged(ctx, installed.ID, target.Name(), request.Force)
+	if err != nil {
+		return nil, err
+	}
+	return synthesizer.SynthesizeSession(ctx, owned.public, request)
+}
+
+func (m *Manager) ensureManaged(ctx context.Context, model, computeName string, force bool) (*managed, error) {
+	m.mu.Lock()
+	for _, item := range m.sessions {
+		if item.public.ModelID == model && item.public.Compute == computeName && item.public.Status == "ready" && item.adapter != nil {
+			m.mu.Unlock()
+			return item, nil
+		}
+	}
+	m.mu.Unlock()
+	session, err := m.Create(ctx, CreateRequest{Model: model, Compute: computeName, Options: Options{Force: force}})
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item, ok := m.sessions[session.ID]
+	if !ok {
+		return nil, fmt.Errorf("created session %q is not owned", session.ID)
+	}
+	return item, nil
+}
+
+func hasCapability(adapter backruntime.Adapter, capability string) bool {
+	for _, item := range adapter.Capabilities() {
+		if strings.EqualFold(item, capability) {
+			return true
+		}
+	}
+	return false
+}
+
+func checkFit(ctx context.Context, installed *models.Installed, target compute.Target, force bool) error {
+	if force {
+		return nil
+	}
+	hardware, err := target.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect compute target for model fit: %w", err)
+	}
+	return fit.Refusal(fit.Evaluate(installed.Package, hardware))
+}
+
+func (m *Manager) resolve(ctx context.Context, model, targetName string) (*models.Installed, backruntime.Adapter, compute.Target, error) {
+	entry, err := m.catalog.Resolve(model)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if targetName == "" {
+		targetName = "local"
+	}
+	m.mu.Lock()
+	target, ok := m.targets[targetName]
+	m.mu.Unlock()
+	if !ok && targetName != "local" {
+		if saved, loadErr := compute.NewTargetStore(m.paths).Get(targetName); loadErr == nil {
+			target = compute.NewSSH(saved)
+			m.RegisterTarget(target)
+			ok = true
+		}
+	}
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("compute target %q is not configured", targetName)
+	}
+	installed, err := m.models.Installed(entry.ID)
+	if err != nil {
+		installed, err = m.models.Pull(ctx, entry, m.sink)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("install model %s: %w", entry.ID, err)
+		}
+	}
+	adapter, err := m.registry.Select(installed.Runtime)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return installed, adapter, target, nil
 }
 
 func (m *Manager) Ensure(ctx context.Context, model string) (*backruntime.Session, error) {

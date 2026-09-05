@@ -1,6 +1,9 @@
 package events
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type Kind string
 
@@ -45,5 +48,44 @@ func Emit(sink Sink, event Event) {
 	if sink != nil {
 		event.At = time.Now().UTC()
 		sink(event)
+	}
+}
+
+// Broker fans structured runtime events out to API clients. Slow clients drop
+// intermediate progress updates instead of blocking inference or installation.
+type Broker struct {
+	mu          sync.Mutex
+	next        uint64
+	subscribers map[uint64]chan Event
+}
+
+func NewBroker() *Broker { return &Broker{subscribers: map[uint64]chan Event{}} }
+func (b *Broker) Publish(event Event) {
+	if event.At.IsZero() {
+		event.At = time.Now().UTC()
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, subscriber := range b.subscribers {
+		select {
+		case subscriber <- event:
+		default:
+		}
+	}
+}
+func (b *Broker) Subscribe() (<-chan Event, func()) {
+	b.mu.Lock()
+	id := b.next
+	b.next++
+	channel := make(chan Event, 64)
+	b.subscribers[id] = channel
+	b.mu.Unlock()
+	return channel, func() {
+		b.mu.Lock()
+		if existing, ok := b.subscribers[id]; ok {
+			delete(b.subscribers, id)
+			close(existing)
+		}
+		b.mu.Unlock()
 	}
 }
