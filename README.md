@@ -1,11 +1,11 @@
 # Backpack Runtime
 
-Backpack Runtime is the open execution layer for the Backpack open-model ecosystem. The `backpack` CLI, Backpack Desktop, and third-party clients are intended to use the same model installation, runtime selection, process lifecycle, compute targeting, and HTTP API.
+**Backpack Runtime is an open-source runtime and CLI for running Backpack-packaged open models locally or on remote compute, with a programmatic HTTP API for external clients.**
 
 It is **not** a new inference engine. It orchestrates engines such as llama.cpp, whisper.cpp, pinned Python workers, and GPU generation runtimes.
 
 ```text
-CLI / Desktop / third-party clients
+CLI / Go client / external clients
                  |
           Backpack Runtime
                  |
@@ -14,9 +14,9 @@ CLI / Desktop / third-party clients
 
 ## Status
 
-- **Implemented:** versioned model/runtime catalogs, manifest-driven selection, verified atomic model and llama.cpp runtime installs, auto-started local service, persisted sessions, `ps`/`stop`, hardware inspection, and llama.cpp launch/health/chat/SSE/stop.
-- **Experimental:** managed-runtime SSH GGUF execution and all GGUF models beyond SmolLM2 135M.
-- **Planned:** Whisper and isolated ASR/TTS workers, image/video jobs, Desktop migration, and managed Backpack Compute.
+- **Supported:** SmolLM2 chat through managed llama.cpp, Whisper Large v3 Turbo transcription through managed whisper.cpp, Qwen3-ASR transcription, and Kokoro speech through managed isolated Python on Windows x64.
+- **Experimental:** managed-runtime SSH GGUF execution and larger GGUF models.
+- **Planned:** additional Python platform bundles, image/video jobs, and managed Backpack Compute.
 
 The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model compatibility](docs/model-compatibility.md).
 
@@ -28,6 +28,8 @@ After installing a Backpack binary (the release pipeline is prepared; the first 
 backpack models
 backpack pull smollm2-135m
 backpack run smollm2-135m --prompt "Say hello"
+backpack transcribe sample.wav --model whisper-large-v3-turbo
+backpack speak "Hello from Backpack" --model kokoro-82m --output hello.wav
 backpack run smollm2-135m --detach
 backpack ps
 backpack stop <session-id>
@@ -46,6 +48,8 @@ curl -N http://127.0.0.1:11434/v1/chat/completions -H "Content-Type: application
 
 The current runtime refuses non-loopback binds because remote API authentication is not implemented.
 
+The CLI does not require Go, llama.cpp, whisper.cpp, Python, qwen-asr, or Kokoro to be installed globally. Native engines, Python distributions, and isolated environments are installed into the Backpack data directory from pinned runtime definitions. Python runtimes are currently limited to Windows x64 CPU.
+
 ## SSH compute (experimental)
 
 ```console
@@ -60,7 +64,7 @@ Backpack transfers its locally verified runtime bundle into the remote user-owne
 
 - `backpack-model-packager` produces model artifacts, manifests, checksums, and runtime-service bundles.
 - `backpack-runtime` consumes that contract and owns execution/model state.
-- Backpack Desktop should become an API client while retaining UI and user workflow state.
+- External applications can consume the public HTTP API or `pkg/client` without taking ownership of runtime processes.
 
 ## Development
 

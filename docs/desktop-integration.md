@@ -1,5 +1,5 @@
-# Desktop integration
+# External client boundary
 
-Desktop should call the loopback Backpack Runtime API, not execute the CLI. Model installation/checksums, package discovery, runtime installation, hardware inspection, process/session lifecycle, engine endpoints, and SSH execution move to Runtime. Conversation storage, interface state, audio capture, file pickers, notifications, and presentation stay in Desktop.
+Backpack Runtime is a standalone product. Any external application should call its loopback HTTP API rather than execute the CLI or take ownership of engine processes. Model installation/checksums, package discovery, runtime installation, hardware inspection, process/session lifecycle, inference, and SSH execution belong to Runtime. Product UI, conversation storage, workspaces, and application-specific state belong to the client.
 
-Health/version, model listing, session CRUD, and streaming chat now have a shared Go client/API contract. Migration should proceed endpoint-by-endpoint: runtime discovery and models first; sessions/chat second; pulls and progress events third; voice/media jobs and SSH last. During transition, Desktop can detect the runtime API and retain its existing path as a compatibility fallback without sharing mutable process state.
+Health/version, model listing, session CRUD, streaming chat, transcription, and speech use a generic API contract. API clients must receive structured progress/events rather than terminal-formatted strings; that event surface remains in progress. `pkg/client` is the reference Go client.

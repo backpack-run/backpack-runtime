@@ -10,8 +10,8 @@
 | Qwen3-Coder Next | chat/code | split GGUF | llama.cpp | expected | no | experimental | Split-artifact validation pending; very large. |
 | Qwen3-Coder 30B A3B | chat/code | GGUF | llama.cpp | expected | no | experimental | Hardware-heavy compatibility validation pending. |
 | Devstral Small 2 24B | chat/code/vision | GGUF + projector | llama.cpp | expected | no | experimental | Projector download/launch support pending. |
-| Whisper Large v3 Turbo | transcription | GGML | whisper.cpp | package bundle exists | no | runtime-required | Runtime manager is reusable; adapter/catalog publication pending. |
-| Qwen3-ASR 0.6B | transcription | Safetensors | qwen-asr 0.0.6 | Windows CPU bundle exists | no | runtime-required | Isolated service adapter pending. |
-| Kokoro 82M | speech | PyTorch | kokoro 0.9.4 | no | no | runtime-required | Validated model; attachable worker bundle still needed. |
+| Whisper Large v3 Turbo | transcription | GGML | managed whisper.cpp | Windows x64 CPU | unavailable | supported | Clean-home pull/runtime-install/transcribe test passed with the pinned JFK fixture. Other platform bundles have not been published. |
+| Qwen3-ASR 0.6B | transcription | Safetensors | isolated Python / qwen-asr 0.0.6 | Windows x64 CPU | unavailable | supported | Clean-home 1.876 GB pull, managed Python/environment, JFK transcription, session/cache reuse, and stop/no-orphan validation passed. |
+| Kokoro 82M | speech | PyTorch | isolated Python / kokoro 0.9.4 | Windows x64 CPU | unavailable | supported | Clean-home managed Python/model synthesis passed; WAV validated, session/cache reuse passed, and stop left no worker processes. |
 | Z-Image-Turbo | image generation | Diffusers upstream reference | diffusers 0.40.0 | no | no | package-change-required | Metadata/static checks pass; GPU inference/output validation pending. |
 | Wan2.2 TI2V 5B | video generation | Diffusers upstream reference | diffusers 0.40.0 | no | no | package-change-required | 24 GB VRAM profile; GPU inference/output validation pending. |

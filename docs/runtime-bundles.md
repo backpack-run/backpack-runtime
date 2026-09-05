@@ -1,8 +1,8 @@
 # Managed runtime bundles
 
-Backpack treats executable inference engines as versioned supply-chain artifacts. A model manifest declares a normalized requirement; the embedded runtime catalog maps it to one or more OS, architecture, and accelerator variants. The first catalog entry is the upstream llama.cpp `b10618` release, whose artifact digests are pinned from the project's GitHub artifact attestation.
+Backpack treats executable inference engines as versioned supply-chain artifacts. A model manifest declares a normalized requirement; the embedded runtime catalog maps it to one or more OS, architecture, and accelerator variants. Current entries cover llama.cpp `b10618`, the pinned whisper.cpp revision validated by the packager, and uv 0.11.15 as the managed-Python bootstrap. Every archive digest is pinned.
 
-Selection order is CUDA, Vulkan, then CPU on machines reporting CUDA; Vulkan then CPU on other Vulkan hosts; Metal then CPU on Apple Silicon; otherwise CPU. A missing variant is an error, not a download from an untrusted fallback. Large-model CPU policy warnings remain future work.
+Selection order is CUDA, Vulkan, then CPU on machines reporting CUDA; Vulkan then CPU on other Vulkan hosts; Metal then CPU on Apple Silicon; otherwise CPU. A missing variant is an error, not a download from an untrusted fallback. The model-fit policy separately refuses clearly impractical CPU fallback unless explicitly forced.
 
 Downloads require HTTPS. Archives are SHA-256 verified before extraction. Absolute paths, directory traversal, symlinks, devices, excessive file counts, and unsupported formats are rejected. Extraction occurs in a sibling staging directory; a manifest records the source, license, executable, and every installed file digest before an atomic rename. A cross-process directory lock prevents competing CLI/service installs. A damaged installation is retained with an `.invalid-<timestamp>` suffix for diagnosis rather than overwritten in place.
 
@@ -12,8 +12,8 @@ Commands:
 
 ```console
 backpack runtime list
-backpack runtime show llama.cpp
-backpack runtime install llama.cpp
+backpack runtime show whisper.cpp
+backpack runtime install whisper.cpp
 backpack runtime verify llama.cpp
 backpack runtime remove llama.cpp <version> <variant>
 ```

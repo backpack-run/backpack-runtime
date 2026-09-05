@@ -10,6 +10,10 @@
 - [ ] Support projectors/split GGUF comprehensively.
 - [ ] Validate all larger GGUF packages without putting weights in ordinary CI.
 - [x] Add SSH configuration, probing, checksum-aware model/runtime sync, remote launch, and loopback tunneling (real-host smoke test pending).
-- [ ] Implement Whisper, Qwen ASR, and Kokoro service adapters with pinned isolated runtimes.
+- [x] Implement and real-smoke-test Windows CPU Whisper transcription through a verified managed native runtime.
+- [x] Implement the managed uv/Python environment boundary, protocol-v1 worker client, and Qwen ASR/Kokoro adapters and APIs.
+- [x] Complete real clean-environment Kokoro synthesis, cache reuse, managed session stop, and no-orphan validation.
+- [x] Complete real clean-environment Qwen ASR pull, transcription, cache/session reuse, and stop/no-orphan validation.
+- [x] Add manifest-based model-fit classification and explicit `--force` override for poor local fallback.
 - [ ] Implement cancellable/progress-aware image and video job adapters after packages are inference-validated.
-- [ ] Publish a stable Desktop client/migration contract and add managed-compute protocol boundaries.
+- [ ] Extend the generic public client/event contract and add managed-compute protocol boundaries.
