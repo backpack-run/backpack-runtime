@@ -9,9 +9,11 @@ other clients -/          |
                        x ComputeTarget
                               |
                            Session
+                              or
+                              Job -> Artifact
 ```
 
-The model resolver maps a stable alias to a versioned catalog entry and immutable repository revision. The model manager consumes the package manifest, downloads to a temporary sibling, verifies SHA-256, atomically installs, and records installed state. It emits events and never prints UI text.
+The model resolver maps a stable alias to a versioned catalog entry and immutable repository revision. Metadata-only resolution happens before large downloads so model-fit policy can refuse unsuitable hardware. The model manager validates complete split sets and typed auxiliary artifacts, downloads, verifies SHA-256, atomically installs, and records installed state. It emits events and never prints UI text.
 
 A normalized `RuntimeRequirement` is resolved by the runtime manager against a separate trusted catalog. The manager inspects the compute target, selects a platform/backend variant, downloads only HTTPS artifacts, verifies catalog-pinned SHA-256 digests, safely extracts them, writes a per-file installed manifest, and atomically commits a versioned runtime directory. Multiple versions coexist. Adapters receive an installed executable and do not own download policy.
 
@@ -19,8 +21,10 @@ An adapter implements engine-specific preparation, launch, health, capability, a
 
 Sessions bind one resolved model, adapter, and target to endpoint/process state. The auto-started local service owns processes beyond an individual CLI request, while CLI and the public Go client use the same HTTP contract. See [runtime lifecycle](runtime-lifecycle.md) and [SSH compute](ssh-compute.md).
 
+Jobs complement sessions for bounded, long-running media work. They persist explicit lifecycle state, support cancellation and step-based progress, and return artifacts confined to `outputs/<job-id>`. Image/video runners are intentionally not registered until their package and GPU execution paths pass real validation.
+
 Before launch, the model-fit policy compares manifest estimates and artifact size with target RAM/VRAM. Clearly unsafe local fallback is refused with a remote-compute recommendation unless the caller explicitly forces it. See [model fit](model-fit.md).
 
-Runtime state defaults to `%LOCALAPPDATA%/Backpack` on Windows and `~/.backpack` elsewhere, with separate models, manifests, runtimes, cache, logs, state, and config directories. Managed runtimes use `runtimes/<engine>/<version>/<variant>`. `BACKPACK_HOME` provides an explicit test/development override.
+Runtime state defaults to `%LOCALAPPDATA%/Backpack` on Windows and `~/.backpack` elsewhere, with separate models, manifests, runtimes, cache, logs, state, config, and outputs directories. Managed runtimes use `runtimes/<engine>/<version>/<variant>`. `BACKPACK_HOME` provides an explicit test/development override.
 
 The management API lives under `/api/backpack/v1`. OpenAI-compatible inference surfaces use `/v1` only where semantics match. The server is loopback-only until authentication and authorization exist.

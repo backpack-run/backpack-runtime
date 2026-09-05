@@ -27,3 +27,5 @@ $BACKPACK_HOME/runtimes/<engine>/<version>/<variant>/
 ```
 
 Backpack currently consumes official upstream llama.cpp release binaries. If Backpack later publishes modified binaries, the publisher must build from a pinned source revision, retain licenses/notices, produce provenance attestations and SHA-256 digests, publish immutable archives, then update the catalog in review. Generated archives do not belong in this source repository.
+
+Runtime bundles and the `backpack` CLI release are separate signed-ready artifacts. End users install one versioned CLI archive; the trusted runtime catalog then selects and verifies engine bundles as needed. Current execution validation is Windows x64. Linux amd64 and macOS arm64 catalog variants are published only after their exact upstream artifacts and execution paths are verified; build portability alone is not a support claim.

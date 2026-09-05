@@ -14,9 +14,9 @@ CLI / Go client / external clients
 
 ## Status
 
-- **Supported:** SmolLM2 chat through managed llama.cpp, Whisper Large v3 Turbo transcription through managed whisper.cpp, Qwen3-ASR transcription, and Kokoro speech through managed isolated Python on Windows x64.
-- **Experimental:** managed-runtime SSH GGUF execution and larger GGUF models.
-- **Planned:** additional Python platform bundles, image/video jobs, and managed Backpack Compute.
+- **Supported:** SmolLM2 135M/1.7B and Qwen2.5 0.5B chat through managed llama.cpp, Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech on Windows x64.
+- **Experimental:** split GGUF, projector/vision contracts, managed-runtime SSH execution, and the generic media-job API.
+- **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.
 
 The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model compatibility](docs/model-compatibility.md).
 
@@ -34,6 +34,7 @@ backpack run smollm2-135m --detach
 backpack ps
 backpack stop <session-id>
 backpack serve
+backpack doctor --json
 ```
 
 Backpack selects a CPU, CUDA, Vulkan, or Metal llama.cpp bundle for the machine, verifies its SHA-256 digest, and installs it automatically. `backpack runtime list`, `show`, `install`, and `verify` provide explicit inspection and repair controls. Developers may still set `BACKPACK_LLAMA_SERVER` to test a local build.
@@ -54,11 +55,13 @@ The CLI does not require Go, llama.cpp, whisper.cpp, Python, qwen-asr, or Kokoro
 
 ```console
 backpack compute add ssh gpu-1 --host gpu.example.org --user alice
-backpack compute test gpu-1
+backpack compute doctor gpu-1
 backpack run smollm2-135m --compute gpu-1
 ```
 
-Backpack transfers its locally verified runtime bundle into the remote user-owned cache, verifies every file remotely, reuses runtime/model caches, and tunnels loopback inference over SSH. No global remote `llama-server` or root access is required.
+Backpack transfers its locally verified runtime bundle into the remote user-owned cache, verifies every file remotely, reuses runtime/model caches, and tunnels loopback inference over SSH. `compute test` and `compute doctor` are aliases for the same real readiness probe. rsync resumes partial transfers when both ends provide it; SCP is the non-resumable fallback. No global remote `llama-server` or root access is required.
+
+Download installation and checksum-verifying scripts are documented in [docs/install.md](docs/install.md). Do not use a shell-pipe installer URL until a reviewed release is published.
 
 ## Repositories
 
