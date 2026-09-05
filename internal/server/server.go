@@ -17,6 +17,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/events"
+	"github.com/backpack-run/backpack-runtime/internal/jobs"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
 	"github.com/backpack-run/backpack-runtime/internal/sessions"
@@ -37,6 +38,13 @@ type TranscriptionService interface {
 type SpeechService interface {
 	Synthesize(context.Context, string, string, backruntime.SpeechRequest) (*backruntime.Speech, error)
 }
+type JobService interface {
+	List() []*jobs.Job
+	Create(context.Context, jobs.CreateRequest) (*jobs.Job, error)
+	Get(string) (*jobs.Job, error)
+	Cancel(string) error
+	ArtifactPath(string, string) (string, error)
+}
 
 type Server struct {
 	Version  string
@@ -45,6 +53,7 @@ type Server struct {
 	Sessions SessionService
 	Audio    TranscriptionService
 	Speech   SpeechService
+	Jobs     JobService
 	Hardware func() (compute.Hardware, error)
 	Client   *http.Client
 	Targets  compute.TargetStore
@@ -101,7 +110,73 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/audio/transcriptions", s.transcriptions)
 	mux.HandleFunc("POST /v1/audio/speech", s.speech)
 	mux.HandleFunc("GET /api/backpack/v1/events", s.eventStream)
+	mux.HandleFunc("GET /api/backpack/v1/jobs", s.listJobs)
+	mux.HandleFunc("POST /api/backpack/v1/jobs", s.createJob)
+	mux.HandleFunc("GET /api/backpack/v1/jobs/{id}", s.getJob)
+	mux.HandleFunc("DELETE /api/backpack/v1/jobs/{id}", s.cancelJob)
+	mux.HandleFunc("GET /api/backpack/v1/jobs/{id}/artifacts/{artifact}", s.getArtifact)
 	return security(mux)
+}
+
+func (s *Server) listJobs(w http.ResponseWriter, _ *http.Request) {
+	if s.Jobs == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
+		return
+	}
+	write(w, http.StatusOK, map[string]any{"data": s.Jobs.List()})
+}
+func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
+	if s.Jobs == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
+		return
+	}
+	var request jobs.CreateRequest
+	if err := decode(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	job, err := s.Jobs.Create(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	write(w, http.StatusAccepted, job)
+}
+func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
+	if s.Jobs == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
+		return
+	}
+	job, err := s.Jobs.Get(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	write(w, http.StatusOK, job)
+}
+func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
+	if s.Jobs == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
+		return
+	}
+	if err := s.Jobs.Cancel(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
+	if s.Jobs == nil {
+		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
+		return
+	}
+	path, err := s.Jobs.ArtifactPath(r.PathValue("id"), r.PathValue("artifact"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(path)))
+	http.ServeFile(w, r, path)
 }
 
 func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
@@ -279,10 +354,31 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, fmt.Errorf("model is required"))
 		return
 	}
+	hasImage, err := validateChatMedia(body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	session, err := s.Sessions.Ensure(r.Context(), envelope.Model)
 	if err != nil {
 		writeError(w, 422, err)
 		return
+	}
+	if hasImage {
+		entry, resolveErr := s.Catalog.Resolve(envelope.Model)
+		if resolveErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, resolveErr)
+			return
+		}
+		installed, installedErr := s.Models.Installed(entry.ID)
+		if installedErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, installedErr)
+			return
+		}
+		if _, ok := installed.Package.ArtifactByRole("multimodal-projector"); !ok {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("model %q has no verified multimodal projector", entry.ID))
+			return
+		}
 	}
 	endpoint, err := s.Sessions.Endpoint(session.ID)
 	if err != nil {
@@ -334,6 +430,43 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, _ = io.Copy(w, res.Body)
+}
+
+func validateChatMedia(body []byte) (bool, error) {
+	var request struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		return false, err
+	}
+	hasImage := false
+	for _, message := range request.Messages {
+		content := bytes.TrimSpace(message.Content)
+		if len(content) == 0 || content[0] == '"' || string(content) == "null" {
+			continue
+		}
+		var parts []struct {
+			Type     string `json:"type"`
+			ImageURL struct {
+				URL string `json:"url"`
+			} `json:"image_url"`
+		}
+		if err := json.Unmarshal(content, &parts); err != nil {
+			return false, fmt.Errorf("message content must be text or OpenAI-compatible content parts")
+		}
+		for _, part := range parts {
+			if part.Type != "image_url" {
+				continue
+			}
+			hasImage = true
+			if !strings.HasPrefix(strings.ToLower(part.ImageURL.URL), "data:image/") {
+				return false, fmt.Errorf("image_url must use an inline data:image URL; network and filesystem image URLs are blocked")
+			}
+		}
+	}
+	return hasImage, nil
 }
 
 func (s *Server) Serve(ctx context.Context, address string) error {

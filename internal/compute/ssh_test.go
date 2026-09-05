@@ -131,6 +131,45 @@ func TestSSHRejectsUnsafeConfiguration(t *testing.T) {
 	}
 }
 
+func TestSSHUsesResumableRsyncWhenAvailable(t *testing.T) {
+	runner := &recordingSSHRunner{}
+	target := NewSSH(SSHConfig{ID: "gpu", Host: "known.example", User: "alice"})
+	target.Runner = runner
+	target.Rsync = "rsync"
+	input := filepath.Join(t.TempDir(), "large.gguf")
+	if err := os.WriteFile(input, []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.copy(context.Background(), input, "/home/alice/.backpack/large.gguf.part"); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	if !strings.Contains(joined, "rsync --partial --append-verify --protect-args") {
+		t.Fatalf("resumable command missing:\n%s", joined)
+	}
+	if strings.Contains(joined, "scp ") {
+		t.Fatalf("unexpected SCP fallback:\n%s", joined)
+	}
+}
+
+func TestSSHDoctorChecksTransferExecutionAndHostKeys(t *testing.T) {
+	runner := &recordingSSHRunner{inspect: []byte("BP_OS=Ubuntu\nBP_ARCH=x86_64\nBP_CPU=EPYC\nBP_CORES=8\nBP_RAM_KB=16777216\nBP_DISK_KB=52428800\nBP_RUNTIME=yes\nBP_CUDA=no\nBP_VULKAN=no\n")}
+	target := NewSSH(SSHConfig{ID: "gpu", Host: "known.example", User: "alice"})
+	target.Runner = runner
+	target.Rsync = "rsync"
+	report, err := target.Doctor(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Connection || !report.Checks["transfer_checksum"] || !report.Checks["remote_execution"] || report.TransferMode != "rsync-resumable" {
+		t.Fatalf("report %#v", report)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	if !strings.Contains(joined, "StrictHostKeyChecking=yes") || strings.Contains(joined, "StrictHostKeyChecking=no") {
+		t.Fatalf("unsafe calls:\n%s", joined)
+	}
+}
+
 func TestSSHBootstrapsAndVerifiesManagedRuntime(t *testing.T) {
 	runner := &recordingSSHRunner{}
 	target := NewSSH(SSHConfig{ID: "gpu", Host: "known.example", User: "alice"})

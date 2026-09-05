@@ -62,11 +62,14 @@ packages:
     format: gguf
     precision: Q4_K_M
     filename: model.gguf
-    sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    sha256: 2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881
     size_bytes: 1
     runtime: {provider: llama.cpp}
 `
 	if err := os.WriteFile(filepath.Join(dir, "backpack-model.yaml"), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), []byte("x"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	state, _ := json.Marshal(struct{ Repository, Revision, Package string }{"backpack-run/Test", revision, packageID})

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/backpack-run/backpack-runtime/internal/events"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 )
 
@@ -23,6 +24,16 @@ type SSHConfig struct {
 	Port         int    `json:"port,omitempty"`
 	IdentityFile string `json:"identity_file,omitempty"`
 	RemoteRoot   string `json:"remote_root,omitempty"`
+}
+type SSHDoctorReport struct {
+	Target        string          `json:"target"`
+	Connection    bool            `json:"connection"`
+	HostKeyPolicy string          `json:"host_key_policy"`
+	RemoteRoot    string          `json:"remote_root"`
+	TransferMode  string          `json:"transfer_mode"`
+	Hardware      Hardware        `json:"hardware"`
+	Checks        map[string]bool `json:"checks"`
+	Warnings      []string        `json:"warnings,omitempty"`
 }
 type SSHRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)
@@ -54,6 +65,8 @@ func (execSSHRunner) Start(name string, args []string, stdout, stderr io.Writer)
 type SSHTarget struct {
 	Config   SSHConfig
 	Runner   SSHRunner
+	Rsync    string
+	Sink     events.Sink
 	mu       sync.Mutex
 	home     string
 	mappings map[string]string
@@ -66,7 +79,8 @@ func NewSSH(config SSHConfig) *SSHTarget {
 	if config.RemoteRoot == "" {
 		config.RemoteRoot = ".backpack"
 	}
-	return &SSHTarget{Config: config, Runner: execSSHRunner{}, mappings: map[string]string{}}
+	rsync, _ := exec.LookPath("rsync")
+	return &SSHTarget{Config: config, Runner: execSSHRunner{}, Rsync: rsync, mappings: map[string]string{}}
 }
 func (s *SSHTarget) Name() string { return s.Config.ID }
 func (s *SSHTarget) Kind() string { return "ssh" }
@@ -170,7 +184,7 @@ func (s *SSHTarget) PrepareModel(ctx context.Context, m *models.Installed) error
 	if _, err := s.run(ctx, "mkdir -p "+shellQuote(remote)); err != nil {
 		return fmt.Errorf("create remote model cache: %w", err)
 	}
-	for _, file := range m.Package.ArtifactFiles() {
+	for _, file := range m.Package.RequiredFiles() {
 		local := filepath.Join(m.Directory, filepath.FromSlash(file.Filename))
 		remoteFile := remote + "/" + filepath.ToSlash(file.Filename)
 		check := "test -f " + shellQuote(remoteFile) + " && test \"$(sha256sum " + shellQuote(remoteFile) + " | awk '{print $1}')\" = " + shellQuote(strings.ToLower(file.SHA256))
@@ -284,6 +298,60 @@ func (s *SSHTarget) Inspect(ctx context.Context) (Hardware, error) {
 	}
 	return h, nil
 }
+
+// Doctor performs a real, non-destructive connectivity, filesystem, transfer,
+// integrity, and command-execution probe. It never weakens known_hosts policy.
+func (s *SSHTarget) Doctor(ctx context.Context) (SSHDoctorReport, error) {
+	report := SSHDoctorReport{Target: s.Name(), HostKeyPolicy: "strict-known-hosts", RemoteRoot: s.Config.RemoteRoot, TransferMode: "scp", Checks: map[string]bool{}}
+	if err := s.Prepare(ctx); err != nil {
+		return report, err
+	}
+	report.Connection = true
+	report.Checks["ssh_connectivity"] = true
+	report.Checks["host_key_verification"] = true
+	hardware, err := s.Inspect(ctx)
+	if err != nil {
+		return report, err
+	}
+	report.Hardware = hardware
+	report.Checks["hardware_inspection"] = true
+	report.Checks["checksum_tool"] = hardware.RuntimeReady
+	s.mu.Lock()
+	home := s.home
+	s.mu.Unlock()
+	remoteRoot := strings.TrimRight(home, "/") + "/" + strings.Trim(s.Config.RemoteRoot, "/")
+	if out, runErr := s.run(ctx, "mkdir -p "+shellQuote(remoteRoot)+" && test -w "+shellQuote(remoteRoot)+" && printf BACKPACK_EXEC_OK"); runErr != nil {
+		return report, fmt.Errorf("remote directory/execution probe: %w: %s", runErr, strings.TrimSpace(string(out)))
+	}
+	report.Checks["remote_directory"] = true
+	report.Checks["remote_execution"] = true
+	probe, err := os.CreateTemp("", "backpack-ssh-doctor-*.txt")
+	if err != nil {
+		return report, err
+	}
+	probePath := probe.Name()
+	defer os.Remove(probePath)
+	_, _ = probe.WriteString("backpack-transfer-probe\n")
+	_ = probe.Close()
+	remoteProbe := remoteRoot + "/.doctor-transfer.part"
+	out, err := s.copy(ctx, probePath, remoteProbe)
+	if err != nil {
+		return report, fmt.Errorf("transfer probe: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	expected := sha256.Sum256([]byte("backpack-transfer-probe\n"))
+	verify := "test \"$(sha256sum " + shellQuote(remoteProbe) + " | awk '{print $1}')\" = " + shellQuote(hex.EncodeToString(expected[:])) + " && rm -f " + shellQuote(remoteProbe)
+	if out, err = s.run(ctx, verify); err != nil {
+		return report, fmt.Errorf("transfer integrity probe: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	report.Checks["transfer"] = true
+	report.Checks["transfer_checksum"] = true
+	if s.Rsync != "" {
+		if _, rsyncErr := s.run(ctx, "command -v rsync >/dev/null"); rsyncErr == nil {
+			report.TransferMode = "rsync-resumable"
+		}
+	}
+	return report, nil
+}
 func (s *SSHTarget) Execute(_ context.Context, c Command) (Process, error) {
 	if err := s.validate(); err != nil {
 		return nil, err
@@ -362,6 +430,24 @@ func (s *SSHTarget) copy(ctx context.Context, local, remote string) ([]byte, err
 	if err := s.validate(); err != nil {
 		return nil, err
 	}
+	events.Emit(s.Sink, events.Event{Type: events.ModelSyncProgress, Kind: events.Status, Message: "Transferring " + filepath.Base(local)})
+	if s.Rsync != "" {
+		if _, err := s.run(ctx, "command -v rsync >/dev/null"); err == nil {
+			sshCommand := "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes"
+			if s.Config.IdentityFile != "" {
+				sshCommand += " -i " + shellQuote(s.Config.IdentityFile)
+			}
+			if s.Config.Port != 22 {
+				sshCommand += " -p " + strconv.Itoa(s.Config.Port)
+			}
+			args := []string{"--partial", "--append-verify", "--protect-args", "-e", sshCommand, local, s.destination() + ":" + remote}
+			out, err := s.Runner.Run(ctx, s.Rsync, args...)
+			if err == nil {
+				events.Emit(s.Sink, events.Event{Type: events.ModelSyncProgress, Kind: events.Complete, Message: "Transferred " + filepath.Base(local)})
+			}
+			return out, err
+		}
+	}
 	args := []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes"}
 	if s.Config.IdentityFile != "" {
 		args = append(args, "-i", s.Config.IdentityFile)
@@ -370,6 +456,10 @@ func (s *SSHTarget) copy(ctx context.Context, local, remote string) ([]byte, err
 		args = append(args, "-P", strconv.Itoa(s.Config.Port))
 	}
 	args = append(args, local, s.destination()+":"+remote)
-	return s.Runner.Run(ctx, "scp", args...)
+	out, err := s.Runner.Run(ctx, "scp", args...)
+	if err == nil {
+		events.Emit(s.Sink, events.Event{Type: events.ModelSyncProgress, Kind: events.Complete, Message: "Transferred " + filepath.Base(local) + " (non-resumable SCP fallback)"})
+	}
+	return out, err
 }
 func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }

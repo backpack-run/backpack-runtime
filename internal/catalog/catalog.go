@@ -18,6 +18,7 @@ type Catalog struct {
 type Model struct {
 	ID            string   `json:"id"`
 	Aliases       []string `json:"aliases"`
+	ManifestIDs   []string `json:"manifest_ids,omitempty"`
 	DisplayName   string   `json:"display_name"`
 	Repository    string   `json:"repository"`
 	Revision      string   `json:"revision"`

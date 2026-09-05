@@ -51,7 +51,7 @@ func TestEnvironmentDefinitionsAreEngineDrivenAndPinned(t *testing.T) {
 	if qwen.Version != "0.0.6" || qwen.Python != "3.11" || kokoro.Version != "0.9.4" || kokoro.Python != "3.12" {
 		t.Fatalf("definitions qwen=%#v kokoro=%#v", qwen, kokoro)
 	}
-	data, err := assets.ReadFile("requirements/" + qwen.Requirements)
+	data, err := assets.ReadFile("requirements/" + qwen.Lock)
 	if err != nil || !strings.Contains(string(data), "qwen-asr==0.0.6") || !strings.Contains(string(data), "torch==2.13.0+cpu") {
 		t.Fatalf("qwen lock: %v %q", err, data)
 	}

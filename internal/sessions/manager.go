@@ -66,7 +66,7 @@ func (m *Manager) RegisterTarget(target compute.Target) {
 }
 
 func (m *Manager) Create(ctx context.Context, request CreateRequest) (*backruntime.Session, error) {
-	installed, adapter, computeTarget, err := m.resolve(ctx, request.Model, request.Compute)
+	installed, adapter, computeTarget, err := m.resolve(ctx, request.Model, request.Compute, request.Options.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (m *Manager) Create(ctx context.Context, request CreateRequest) (*backrunti
 }
 
 func (m *Manager) Transcribe(ctx context.Context, model, computeName string, request backruntime.TranscriptionRequest) (*backruntime.Transcription, error) {
-	installed, adapter, target, err := m.resolve(ctx, model, computeName)
+	installed, adapter, target, err := m.resolve(ctx, model, computeName, request.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (m *Manager) Transcribe(ctx context.Context, model, computeName string, req
 }
 
 func (m *Manager) Synthesize(ctx context.Context, model, computeName string, request backruntime.SpeechRequest) (*backruntime.Speech, error) {
-	installed, adapter, target, err := m.resolve(ctx, model, computeName)
+	installed, adapter, target, err := m.resolve(ctx, model, computeName, request.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func checkFit(ctx context.Context, installed *models.Installed, target compute.T
 	return fit.Refusal(fit.Evaluate(installed.Package, hardware))
 }
 
-func (m *Manager) resolve(ctx context.Context, model, targetName string) (*models.Installed, backruntime.Adapter, compute.Target, error) {
+func (m *Manager) resolve(ctx context.Context, model, targetName string, force bool) (*models.Installed, backruntime.Adapter, compute.Target, error) {
 	entry, err := m.catalog.Resolve(model)
 	if err != nil {
 		return nil, nil, nil, err
@@ -197,6 +197,9 @@ func (m *Manager) resolve(ctx context.Context, model, targetName string) (*model
 	if !ok && targetName != "local" {
 		if saved, loadErr := compute.NewTargetStore(m.paths).Get(targetName); loadErr == nil {
 			target = compute.NewSSH(saved)
+			if sshTarget, isSSH := target.(*compute.SSHTarget); isSSH {
+				sshTarget.Sink = m.sink
+			}
 			m.RegisterTarget(target)
 			ok = true
 		}
@@ -206,9 +209,24 @@ func (m *Manager) resolve(ctx context.Context, model, targetName string) (*model
 	}
 	installed, err := m.models.Installed(entry.ID)
 	if err != nil {
+		candidate, resolveErr := m.models.ResolvePackage(ctx, entry)
+		if resolveErr != nil {
+			return nil, nil, nil, fmt.Errorf("resolve model %s: %w", entry.ID, resolveErr)
+		}
+		if !force {
+			if fitErr := checkFit(ctx, candidate, target, false); fitErr != nil {
+				return nil, nil, nil, fitErr
+			}
+		}
 		installed, err = m.models.Pull(ctx, entry, m.sink)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("install model %s: %w", entry.ID, err)
+		}
+	} else if verifyErr := m.models.Verify(installed); verifyErr != nil {
+		events.Emit(m.sink, events.Event{Type: events.ModelVerifyStarted, Kind: events.Warning, Message: "Installed model failed verification; repairing package"})
+		installed, err = m.models.Pull(ctx, entry, m.sink)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("repair model %s after %v: %w", entry.ID, verifyErr, err)
 		}
 	}
 	adapter, err := m.registry.Select(installed.Runtime)

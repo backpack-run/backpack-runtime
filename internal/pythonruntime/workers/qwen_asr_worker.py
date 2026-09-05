@@ -11,6 +11,24 @@ PROTOCOL_VERSION = 1
 ENGINE = "qwen-asr"
 CAPABILITIES = ["transcription"]
 
+LANGUAGE_CODES = {
+    "zh": "Chinese", "en": "English", "yue": "Cantonese", "ar": "Arabic",
+    "de": "German", "fr": "French", "es": "Spanish", "pt": "Portuguese",
+    "id": "Indonesian", "it": "Italian", "ko": "Korean", "ru": "Russian",
+    "th": "Thai", "vi": "Vietnamese", "ja": "Japanese", "tr": "Turkish",
+    "hi": "Hindi", "ms": "Malay", "nl": "Dutch", "sv": "Swedish",
+    "da": "Danish", "fi": "Finnish", "pl": "Polish", "cs": "Czech",
+    "fil": "Filipino", "fa": "Persian", "el": "Greek", "ro": "Romanian",
+    "hu": "Hungarian", "mk": "Macedonian",
+}
+
+
+def normalize_language(value):
+    if not value:
+        return None
+    code = str(value).strip().lower().replace("_", "-").split("-", 1)[0]
+    return LANGUAGE_CODES.get(code, value)
+
 
 class State:
     model = None
@@ -29,7 +47,7 @@ class State:
         if self.model is None:
             raise RuntimeError("model is not loaded")
         audio = str(Path(payload["audio_path"]).resolve())
-        results = self.model.transcribe(audio=audio, language=payload.get("language") or None)
+        results = self.model.transcribe(audio=audio, language=normalize_language(payload.get("language")))
         if not results:
             raise RuntimeError("runtime returned no transcription")
         return {"text": results[0].text.strip(), "language": results[0].language}

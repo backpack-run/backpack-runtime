@@ -40,27 +40,12 @@ func (m *Manager) Pull(ctx context.Context, entry catalog.Model, sink events.Sin
 		return nil, err
 	}
 	events.Emit(sink, events.Event{Type: events.ModelResolve, Kind: events.Status, Message: "Resolving package manifest"})
-	manifestURL := hfURL(m.BaseURL, entry.Repository, entry.Revision, "backpack-model.yaml")
-	manifestBytes, err := m.get(ctx, manifestURL)
-	if err != nil {
-		return nil, fmt.Errorf("download manifest: %w", err)
-	}
-	manifest, err := ParseManifest(manifestBytes)
+	resolved, manifestBytes, err := m.resolvePackage(ctx, entry)
 	if err != nil {
 		return nil, err
 	}
-	if manifest.Model.ID != entry.ID {
-		return nil, fmt.Errorf("catalog expected model %q but manifest contains %q", entry.ID, manifest.Model.ID)
-	}
-	pkg, err := preferredPackage(manifest.Packages)
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Join(m.Paths.Models, entry.ID, entry.Revision, pkg.ID)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("create model directory: %w", err)
-	}
-	for _, artifact := range pkg.ArtifactFiles() {
+	manifest, pkg, dir := resolved.Manifest, resolved.Package, resolved.Directory
+	for _, artifact := range pkg.RequiredFiles() {
 		destination := filepath.Join(dir, filepath.FromSlash(artifact.Filename))
 		if !within(dir, destination) {
 			return nil, fmt.Errorf("unsafe artifact path %q", artifact.Filename)
@@ -84,6 +69,49 @@ func (m *Manager) Pull(ctx context.Context, entry catalog.Model, sink events.Sin
 	_ = atomicWrite(filepath.Join(m.Paths.Manifests, entry.ID+".json"), state)
 	events.Emit(sink, events.Event{Type: events.ModelVerifyComplete, Kind: events.Complete, Message: "Package installed and verified"})
 	return &Installed{entry.ID, entry.Repository, entry.Revision, dir, manifest, pkg, manifest.RuntimeFor(pkg)}, nil
+}
+
+// ResolvePackage retrieves and validates only trusted metadata. It is used for
+// model-fit refusal before multi-gigabyte artifacts are transferred.
+func (m *Manager) ResolvePackage(ctx context.Context, entry catalog.Model) (*Installed, error) {
+	resolved, _, err := m.resolvePackage(ctx, entry)
+	return resolved, err
+}
+
+func (m *Manager) resolvePackage(ctx context.Context, entry catalog.Model) (*Installed, []byte, error) {
+	manifestURL := hfURL(m.BaseURL, entry.Repository, entry.Revision, "backpack-model.yaml")
+	manifestBytes, err := m.get(ctx, manifestURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("download manifest: %w", err)
+	}
+	manifest, err := ParseManifest(manifestBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !acceptedManifestID(entry, manifest.Model.ID) {
+		return nil, nil, fmt.Errorf("catalog expected model %q but manifest contains %q", entry.ID, manifest.Model.ID)
+	}
+	pkg, err := preferredPackage(manifest.Packages)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := filepath.Join(m.Paths.Models, entry.ID, entry.Revision, pkg.ID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, nil, fmt.Errorf("create model directory: %w", err)
+	}
+	return &Installed{entry.ID, entry.Repository, entry.Revision, dir, manifest, pkg, manifest.RuntimeFor(pkg)}, manifestBytes, nil
+}
+
+func acceptedManifestID(entry catalog.Model, id string) bool {
+	if strings.EqualFold(entry.ID, id) {
+		return true
+	}
+	for _, accepted := range entry.ManifestIDs {
+		if strings.EqualFold(accepted, id) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) Installed(id string) (*Installed, error) {
@@ -137,6 +165,34 @@ func (m *Manager) List() ([]*Installed, error) {
 }
 func (i Installed) Entrypoint() string {
 	return filepath.Join(i.Directory, filepath.FromSlash(i.Package.RuntimeEntrypoint()))
+}
+
+func (i Installed) ArtifactPath(role string) (string, bool) {
+	artifact, ok := i.Package.ArtifactByRole(role)
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(i.Directory, filepath.FromSlash(artifact.Filename)), true
+}
+
+// Verify checks the complete package, including every split shard and auxiliary
+// artifact. This is intentionally callable before every launch so corruption
+// cannot be hidden by a previously written installation record.
+func (m *Manager) Verify(installed *Installed) error {
+	for _, artifact := range installed.Package.RequiredFiles() {
+		path := filepath.Join(installed.Directory, filepath.FromSlash(artifact.Filename))
+		if !within(installed.Directory, path) {
+			return fmt.Errorf("unsafe installed artifact path %q", artifact.Filename)
+		}
+		ok, err := verifyFile(path, artifact.SHA256)
+		if err != nil {
+			return fmt.Errorf("verify %s: %w", artifact.Filename, err)
+		}
+		if !ok {
+			return fmt.Errorf("checksum mismatch for installed artifact %s", artifact.Filename)
+		}
+	}
+	return nil
 }
 
 func preferredPackage(packages []Package) (Package, error) {

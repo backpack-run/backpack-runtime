@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/config"
+	"github.com/backpack-run/backpack-runtime/internal/jobs"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
 	"github.com/backpack-run/backpack-runtime/internal/sessions"
@@ -104,5 +105,59 @@ func TestSpeechUsesGenericAudioContract(t *testing.T) {
 	s.Handler().ServeHTTP(w, request)
 	if w.Code != http.StatusOK || w.Body.String() != "RIFF-test" || w.Header().Get("Content-Type") != "audio/wav" {
 		t.Fatalf("status=%d headers=%v body=%q", w.Code, w.Header(), w.Body.String())
+	}
+}
+
+func TestChatMediaRejectsNetworkAndFilesystemURLs(t *testing.T) {
+	for _, address := range []string{"https://example.com/private.png", "file:///etc/passwd"} {
+		body := `{"model":"vision","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"` + address + `"}}]}]}`
+		s := Server{Sessions: fakeSessions{}}
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "inline data:image") {
+			t.Fatalf("address=%s status=%d body=%s", address, w.Code, w.Body.String())
+		}
+	}
+}
+
+type fakeJobs struct{ job *jobs.Job }
+
+func (f *fakeJobs) List() []*jobs.Job { return []*jobs.Job{f.job} }
+func (f *fakeJobs) Create(_ context.Context, request jobs.CreateRequest) (*jobs.Job, error) {
+	f.job = &jobs.Job{ID: "job-1", Model: request.Model, Capability: request.Capability, Status: jobs.Queued}
+	return f.job, nil
+}
+func (f *fakeJobs) Get(id string) (*jobs.Job, error) {
+	if id != f.job.ID {
+		return nil, os.ErrNotExist
+	}
+	return f.job, nil
+}
+func (f *fakeJobs) Cancel(id string) error {
+	if id != f.job.ID {
+		return os.ErrNotExist
+	}
+	f.job.Status = jobs.Cancelled
+	return nil
+}
+func (f *fakeJobs) ArtifactPath(string, string) (string, error) { return "", os.ErrNotExist }
+
+func TestJobManagementRoutes(t *testing.T) {
+	service := &fakeJobs{}
+	s := Server{Jobs: service}
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/backpack/v1/jobs", strings.NewReader(`{"model":"z-image-turbo","capability":"image-generation","input":{"prompt":"sunrise"}}`)))
+	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), `"id":"job-1"`) {
+		t.Fatalf("create status=%d body=%s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/backpack/v1/jobs/job-1", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"model":"z-image-turbo"`) {
+		t.Fatalf("get status=%d body=%s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/backpack/v1/jobs/job-1", nil))
+	if w.Code != http.StatusNoContent || service.job.Status != jobs.Cancelled {
+		t.Fatalf("cancel status=%d job=%+v", w.Code, service.job)
 	}
 }

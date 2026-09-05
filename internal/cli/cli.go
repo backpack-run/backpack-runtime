@@ -13,8 +13,10 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/daemon"
+	"github.com/backpack-run/backpack-runtime/internal/diagnostics"
 	"github.com/backpack-run/backpack-runtime/internal/events"
 	"github.com/backpack-run/backpack-runtime/internal/fit"
+	"github.com/backpack-run/backpack-runtime/internal/jobs"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	"github.com/backpack-run/backpack-runtime/internal/pythonruntime"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
@@ -70,6 +72,9 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 	if len(args) == 0 {
 		return a.help()
 	}
+	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
+		return a.commandHelp(args[0])
+	}
 	switch args[0] {
 	case "help", "--help", "-h":
 		return a.help()
@@ -83,7 +88,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 	case "list":
 		return a.list()
 	case "inspect":
-		return a.inspect(args[1:])
+		return a.inspect(ctx, args[1:])
 	case "hardware":
 		return a.hardware(ctx)
 	case "run":
@@ -102,12 +107,50 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.compute(ctx, args[1:])
 	case "runtime":
 		return a.runtimeCommand(ctx, args[1:])
+	case "doctor":
+		return a.doctor(ctx, args[1:])
+	case "jobs":
+		return a.jobsCommand(ctx, args[1:])
+	case "image":
+		return a.mediaJob(ctx, "image-generation", args[1:])
+	case "video":
+		return a.mediaJob(ctx, "video-generation", args[1:])
 	case "_daemon":
 		return a.serve(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown command %q; run `backpack help`", args[0])
 	}
 }
+
+func (a *app) commandHelp(command string) error {
+	usage := map[string]string{
+		"models":     "Usage: backpack models\n\nList the trusted model catalog and support status.\n",
+		"pull":       "Usage: backpack pull <model>\n\nResolve, download, verify, and atomically install a model package.\n",
+		"list":       "Usage: backpack list\n\nList installed model packages.\n",
+		"inspect":    "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
+		"hardware":   "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
+		"run":        "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
+		"transcribe": "Usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target] [--force]\n",
+		"speak":      "Usage: backpack speak <text> --output file.wav [--model model] [--voice voice] [--speed n] [--compute target] [--force]\n",
+		"serve":      "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
+		"ps":         "Usage: backpack ps\n\nList service-owned runtime sessions.\n",
+		"stop":       "Usage: backpack stop <session-id>\n\nGracefully stop one exact session.\n",
+		"compute":    "Usage: backpack compute <list|add|show|test|doctor|remove> [arguments]\n",
+		"runtime":    "Usage: backpack runtime <list|show|install|verify|remove> [arguments]\n",
+		"doctor":     "Usage: backpack doctor [--json]\n\nPrint sanitized local diagnostics suitable for bug reports.\n",
+		"jobs":       "Usage: backpack jobs <list|show|cancel> [arguments] [--json]\n",
+		"image":      "Usage: backpack image <model> --prompt text [--width n] [--height n] [--steps n] [--seed n] [--compute target]\n\nExperimental: submission requires an execution-validated image runner.\n",
+		"video":      "Usage: backpack video <model> --prompt text [--image path] [--frames n] [--fps n] [--steps n] [--seed n] [--compute target]\n\nExperimental: submission requires an execution-validated video runner.\n",
+		"version":    "Usage: backpack version\n",
+	}
+	text, ok := usage[command]
+	if !ok {
+		return a.help()
+	}
+	fmt.Fprint(a.out, text)
+	return nil
+}
+
 func (a *app) help() error {
 	fmt.Fprint(a.out, `Backpack Runtime
 
@@ -126,6 +169,10 @@ Usage: backpack <command>
   stop <session>          gracefully stop a session
   compute <command>       manage local and SSH compute targets
   runtime <command>       inspect and manage inference runtimes
+  doctor [--json]         print sanitized release diagnostics
+  jobs <command>          list, inspect, or cancel long-running jobs
+  image <model> [flags]   submit an image-generation job (experimental)
+  video <model> [flags]   submit a video-generation job (experimental)
   version
 
 Run flags: --prompt text --context tokens --gpu-layers auto|n --keep-alive --detach --force
@@ -326,6 +373,28 @@ func (a *app) runtimeCommand(ctx context.Context, args []string) error {
 		return fmt.Errorf("unknown runtime command %q", args[0])
 	}
 }
+func (a *app) doctor(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	asJSON := fs.Bool("json", false, "emit sanitized machine-readable diagnostics")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: backpack doctor [--json]")
+	}
+	report := diagnostics.Collect(ctx, a.version, a.paths, a.local, a.models, a.runtimes, compute.NewTargetStore(a.paths))
+	if *asJSON {
+		data, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Fprintln(a.out, string(data))
+		return nil
+	}
+	fmt.Fprintf(a.out, "Backpack %s\nPlatform: %s\nHome: %s\nDaemon: %v\nModels: %d installed, %d verified, %d corrupt\nRuntimes: %d installed, %d verified, %d corrupt\nCompute targets: %d\n", report.Version, report.Platform, report.BackpackHome, report.Daemon.Running, report.Models.Installed, report.Models.Verified, report.Models.Corrupt, report.Runtimes.Installed, report.Runtimes.Verified, report.Runtimes.Corrupt, len(report.ComputeTargets))
+	for _, problem := range report.KnownProblems {
+		fmt.Fprintln(a.out, "Problem:", problem)
+	}
+	return nil
+}
 func (a *app) catalogList() error {
 	fmt.Fprintf(a.out, "Official catalog %s\n\n", a.catalog.CatalogVersion)
 	for _, m := range a.catalog.Models {
@@ -372,7 +441,7 @@ func (a *app) list() error {
 	}
 	return nil
 }
-func (a *app) inspect(args []string) error {
+func (a *app) inspect(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: backpack inspect <model>")
 	}
@@ -381,8 +450,12 @@ func (a *app) inspect(args []string) error {
 		return err
 	}
 	m, err := a.models.Installed(entry.ID)
-	if err != nil {
-		return err
+	installed := err == nil
+	if !installed {
+		m, err = a.models.ResolvePackage(ctx, entry)
+		if err != nil {
+			return err
+		}
 	}
 	available := "available"
 	if _, err = a.registry.Select(m.Runtime); err != nil {
@@ -393,7 +466,7 @@ func (a *app) inspect(args []string) error {
 	if hardwareErr == nil {
 		localFit = fit.Evaluate(m.Package, hardware)
 	}
-	report := map[string]any{"id": m.ID, "repository": m.Repository, "revision": m.Revision, "package": m.Package, "runtime": m.Runtime, "adapter": available, "entrypoint": m.Entrypoint(), "local_fit": localFit}
+	report := map[string]any{"id": m.ID, "repository": m.Repository, "revision": m.Revision, "installed": installed, "package": m.Package, "runtime": m.Runtime, "adapter": available, "entrypoint": m.Package.RuntimeEntrypoint(), "local_fit": localFit}
 	b, _ := json.MarshalIndent(report, "", "  ")
 	fmt.Fprintln(a.out, string(b))
 	return nil
@@ -559,7 +632,7 @@ func (a *app) compute(ctx context.Context, args []string) error {
 		data, _ := json.MarshalIndent(item, "", "  ")
 		fmt.Fprintln(a.out, string(data))
 		return nil
-	case "test":
+	case "test", "doctor":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: backpack compute test <name>")
 		}
@@ -570,7 +643,7 @@ func (a *app) compute(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		h, err := compute.NewSSH(item).Inspect(ctx)
+		h, err := compute.NewSSH(item).Doctor(ctx)
 		if err != nil {
 			return err
 		}
@@ -621,6 +694,112 @@ func (a *app) computeAdd(store compute.TargetStore, args []string) error {
 	fmt.Fprintln(a.out, "Saved SSH compute target", name)
 	return nil
 }
+
+func (a *app) jobsCommand(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: backpack jobs <list|show|cancel>")
+	}
+	api, err := daemon.Ensure(ctx, a.paths, a.version)
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("jobs list", flag.ContinueOnError)
+		fs.SetOutput(a.err)
+		asJSON := fs.Bool("json", false, "emit machine-readable JSON")
+		if err = fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return fmt.Errorf("usage: backpack jobs list [--json]")
+		}
+		items, listErr := api.Jobs(ctx)
+		if listErr != nil {
+			return listErr
+		}
+		if *asJSON {
+			data, _ := json.MarshalIndent(map[string]any{"data": items}, "", "  ")
+			fmt.Fprintln(a.out, string(data))
+			return nil
+		}
+		if len(items) == 0 {
+			fmt.Fprintln(a.out, "No jobs.")
+			return nil
+		}
+		fmt.Fprintln(a.out, "JOB                                  MODEL                       CAPABILITY         STATUS")
+		for _, item := range items {
+			fmt.Fprintf(a.out, "%-36s %-27s %-18s %s\n", item.ID, item.Model, item.Capability, item.Status)
+		}
+		return nil
+	case "show":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: backpack jobs show <job>")
+		}
+		item, getErr := api.GetJob(ctx, args[1])
+		if getErr != nil {
+			return getErr
+		}
+		data, _ := json.MarshalIndent(item, "", "  ")
+		fmt.Fprintln(a.out, string(data))
+		return nil
+	case "cancel":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: backpack jobs cancel <job>")
+		}
+		if err = api.CancelJob(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Fprintln(a.out, "Cancellation requested", args[1])
+		return nil
+	default:
+		return fmt.Errorf("unknown jobs command %q", args[0])
+	}
+}
+
+func (a *app) mediaJob(ctx context.Context, capability string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: backpack %s <model> --prompt <text> [flags]", strings.TrimSuffix(capability, "-generation"))
+	}
+	model := args[0]
+	fs := flag.NewFlagSet(capability, flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	prompt := fs.String("prompt", "", "generation prompt")
+	image := fs.String("image", "", "input image for supported video models")
+	width := fs.Int("width", 0, "output width")
+	height := fs.Int("height", 0, "output height")
+	steps := fs.Int("steps", 0, "generation steps")
+	seed := fs.Int64("seed", 0, "generation seed")
+	frames := fs.Int("frames", 0, "video frame count")
+	fps := fs.Float64("fps", 0, "video frames per second")
+	computeName := fs.String("compute", "local", "compute target")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *prompt == "" {
+		return fmt.Errorf("--prompt is required")
+	}
+	if capability == "image-generation" && *image != "" {
+		return fmt.Errorf("--image is only valid for video generation")
+	}
+	var seedValue *int64
+	fs.Visit(func(item *flag.Flag) {
+		if item.Name == "seed" {
+			seedValue = seed
+		}
+	})
+	api, err := daemon.Ensure(ctx, a.paths, a.version)
+	if err != nil {
+		return err
+	}
+	job, err := api.CreateJob(ctx, clientapi.CreateJobRequest{Model: model, Capability: capability, Compute: *computeName, Input: clientapi.JobInput{Prompt: *prompt, Image: *image}, Options: clientapi.JobOptions{Width: *width, Height: *height, Steps: *steps, Seed: seedValue, Frames: *frames, FPS: *fps}})
+	if err != nil {
+		return err
+	}
+	data, _ := json.MarshalIndent(job, "", "  ")
+	fmt.Fprintln(a.out, string(data))
+	return nil
+}
 func (a *app) serve(ctx context.Context, args []string) error {
 	if err := a.paths.Ensure(); err != nil {
 		return err
@@ -634,7 +813,8 @@ func (a *app) serve(ctx context.Context, args []string) error {
 	broker := events.NewBroker()
 	a.runtimes.Sink = broker.Publish
 	manager := sessions.NewWithEvents(a.catalog, a.models, a.registry, a.paths, broker.Publish)
-	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Audio: manager, Speech: manager, Events: broker, Targets: compute.NewTargetStore(a.paths), Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
+	jobManager := jobs.New(a.catalog, a.paths, broker.Publish)
+	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Audio: manager, Speech: manager, Jobs: jobManager, Events: broker, Targets: compute.NewTargetStore(a.paths), Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
 	if existing, err := daemon.Read(a.paths); err == nil && existing.PID != os.Getpid() {
 		check, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 		healthErr := clientapi.New(existing.Endpoint).Health(check)

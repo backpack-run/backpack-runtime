@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 
@@ -78,6 +79,21 @@ type File struct {
 	Filename  string `yaml:"filename" json:"filename"`
 	SHA256    string `yaml:"sha256" json:"sha256"`
 	SizeBytes int64  `yaml:"size_bytes" json:"size_bytes"`
+	Role      string `yaml:"role,omitempty" json:"role,omitempty"`
+}
+
+// AuxiliaryArtifact is a package-bound runtime input. It deliberately carries
+// data, not command-line fragments: manifests may select trusted adapter
+// behavior, but can never inject executable arguments.
+type AuxiliaryArtifact struct {
+	ID        string      `yaml:"id" json:"id"`
+	Role      string      `yaml:"role" json:"role"`
+	Format    string      `yaml:"format" json:"format"`
+	Precision string      `yaml:"precision,omitempty" json:"precision,omitempty"`
+	Filename  string      `yaml:"filename" json:"filename"`
+	SHA256    string      `yaml:"sha256" json:"sha256"`
+	SizeBytes int64       `yaml:"size_bytes" json:"size_bytes"`
+	Runtime   RuntimeInfo `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 }
 type Hardware struct {
 	EstimatedRAMGB float64 `yaml:"estimated_ram_gb" json:"estimated_ram_gb"`
@@ -102,13 +118,38 @@ type Package struct {
 	Validation Validation  `yaml:"validation" json:"validation"`
 	Files      []File      `yaml:"files,omitempty" json:"files,omitempty"`
 	Entrypoint string      `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
+	// Projector is retained for the current packager schema. New package
+	// producers may use AuxiliaryArtifacts for projectors, tokenizers, and other
+	// explicitly typed inputs.
+	Projector          *AuxiliaryArtifact  `yaml:"projector,omitempty" json:"projector,omitempty"`
+	AuxiliaryArtifacts []AuxiliaryArtifact `yaml:"auxiliary_artifacts,omitempty" json:"auxiliary_artifacts,omitempty"`
 }
 
 func (p Package) ArtifactFiles() []File {
 	if len(p.Files) > 0 {
 		return p.Files
 	}
-	return []File{{p.Filename, p.SHA256, p.SizeBytes}}
+	return []File{{Filename: p.Filename, SHA256: p.SHA256, SizeBytes: p.SizeBytes}}
+}
+
+func (p Package) RequiredFiles() []File {
+	files := append([]File(nil), p.ArtifactFiles()...)
+	if p.Projector != nil {
+		files = append(files, File{Filename: p.Projector.Filename, SHA256: p.Projector.SHA256, SizeBytes: p.Projector.SizeBytes, Role: p.Projector.Role})
+	}
+	for _, artifact := range p.AuxiliaryArtifacts {
+		files = append(files, File{Filename: artifact.Filename, SHA256: artifact.SHA256, SizeBytes: artifact.SizeBytes, Role: artifact.Role})
+	}
+	return files
+}
+
+func (p Package) ArtifactByRole(role string) (File, bool) {
+	for _, file := range p.RequiredFiles() {
+		if strings.EqualFold(file.Role, role) {
+			return file, true
+		}
+	}
+	return File{}, false
 }
 func (p Package) RuntimeEntrypoint() string {
 	if p.Entrypoint != "" {
@@ -157,10 +198,52 @@ func (m Manifest) Validate() error {
 		if p.ID == "" || (p.Runtime.Provider == "" && (m.Runtime == nil || m.Runtime.Engine == "")) {
 			return fmt.Errorf("package %q must declare id and runtime.provider", p.ID)
 		}
-		for _, f := range p.ArtifactFiles() {
+		for _, f := range p.RequiredFiles() {
 			if f.Filename == "" || !validSHA256(f.SHA256) || f.SizeBytes <= 0 {
 				return fmt.Errorf("package %q has invalid artifact metadata for %q", p.ID, f.Filename)
 			}
+		}
+		if err := validatePackageArtifacts(p); err != nil {
+			return fmt.Errorf("package %q: %w", p.ID, err)
+		}
+	}
+	return nil
+}
+
+var splitGGUF = regexp.MustCompile(`(?i)^(.*)-(\d{5})-of-(\d{5})\.gguf$`)
+var windowsAbsolutePath = regexp.MustCompile(`^[A-Za-z]:`)
+
+func validatePackageArtifacts(p Package) error {
+	seen := map[string]bool{}
+	for _, f := range p.RequiredFiles() {
+		name := strings.ReplaceAll(f.Filename, "\\", "/")
+		if path.IsAbs(name) || strings.Contains(name, "../") || name == ".." || windowsAbsolutePath.MatchString(name) {
+			return fmt.Errorf("unsafe artifact path %q", f.Filename)
+		}
+		if seen[strings.ToLower(name)] {
+			return fmt.Errorf("duplicate artifact path %q", f.Filename)
+		}
+		seen[strings.ToLower(name)] = true
+	}
+	entry := strings.ReplaceAll(p.RuntimeEntrypoint(), "\\", "/")
+	if !seen[strings.ToLower(entry)] {
+		return fmt.Errorf("entrypoint %q is not in the required artifact set", entry)
+	}
+	match := splitGGUF.FindStringSubmatch(entry)
+	if len(match) == 0 {
+		return nil
+	}
+	if match[2] != "00001" {
+		return fmt.Errorf("split GGUF entrypoint must be shard 00001, got %q", entry)
+	}
+	var total int
+	if _, err := fmt.Sscanf(match[3], "%d", &total); err != nil || total < 2 {
+		return fmt.Errorf("invalid split GGUF shard count in %q", entry)
+	}
+	for shard := 1; shard <= total; shard++ {
+		required := fmt.Sprintf("%s-%05d-of-%05d.gguf", match[1], shard, total)
+		if !seen[strings.ToLower(required)] {
+			return fmt.Errorf("split GGUF is incomplete: missing shard %05d of %05d (%s)", shard, total, required)
 		}
 	}
 	return nil
