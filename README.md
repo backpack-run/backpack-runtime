@@ -14,7 +14,8 @@ Install `v0.1.0-alpha.1` from its immutable tag by downloading the installer, in
 
 ```powershell
 Invoke-WebRequest https://raw.githubusercontent.com/backpack-run/backpack-runtime/v0.1.0-alpha.1/scripts/install.ps1 -OutFile install.ps1
-.\install.ps1 -Version v0.1.0-alpha.1
+Get-Content .\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.1.0-alpha.1
 ```
 
 Linux x64 and macOS arm64 preview:

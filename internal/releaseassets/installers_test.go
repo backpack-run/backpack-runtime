@@ -29,13 +29,16 @@ func TestPowerShellInstallerHardening(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, required := range []string{"AllowAutoRedirect = $false", "Refusing non-HTTPS download", "Unsafe or unexpected archive entry", "Release archive is incomplete", "Downloaded binary did not report expected version", "[IO.File]::Replace"} {
+	for _, required := range []string{"AllowAutoRedirect = $false", "Refusing non-HTTPS download", "Unsafe or unexpected archive entry", "Release archive is incomplete", "Downloaded binary did not report expected version", "[IO.File]::Replace", "$backupBinary"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("PowerShell installer is missing %q", required)
 		}
 	}
 	if strings.Contains(text, "Expand-Archive") {
 		t.Fatal("PowerShell installer performs broad archive extraction")
+	}
+	if strings.Contains(text, "[IO.File]::Replace($stagedBinary, $destination, $null)") {
+		t.Fatal("PowerShell 5.1 rejects a null File.Replace backup path")
 	}
 }
 
@@ -75,7 +78,7 @@ func TestReleaseMetadataIsAlphaSafe(t *testing.T) {
 
 func TestReleaseWorkflowActionsAreImmutable(t *testing.T) {
 	root := filepath.Join("..", "..", ".github", "workflows")
-	for _, name := range []string{"ci.yml", "release.yml", "release-qualification.yml"} {
+	for _, name := range []string{"catalog-verify.yml", "ci.yml", "release.yml", "release-qualification.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)

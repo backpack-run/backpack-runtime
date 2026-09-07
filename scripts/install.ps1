@@ -12,6 +12,7 @@ $releaseVersion = $Version.TrimStart('v')
 $archive = "backpack_${releaseVersion}_windows_amd64.zip"
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("backpack-install-" + [Guid]::NewGuid().ToString('N'))
 $stagedBinary = $null
+$backupBinary = $null
 
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
     throw 'This installer supports Windows x64 only.'
@@ -92,7 +93,10 @@ try {
     $stagedBinary = Join-Path $InstallDirectory ('.backpack-install-' + [Guid]::NewGuid().ToString('N') + '.exe')
     Copy-Item -LiteralPath $candidate -Destination $stagedBinary
     if (Test-Path -LiteralPath $destination) {
-        [IO.File]::Replace($stagedBinary, $destination, $null)
+        $backupBinary = Join-Path $InstallDirectory ('.backpack-backup-' + [Guid]::NewGuid().ToString('N') + '.exe')
+        [IO.File]::Replace($stagedBinary, $destination, $backupBinary, $true)
+        Remove-Item -LiteralPath $backupBinary -Force
+        $backupBinary = $null
     } else {
         Move-Item -LiteralPath $stagedBinary -Destination $destination
     }
@@ -102,5 +106,6 @@ try {
 }
 finally {
     if ($stagedBinary -and (Test-Path -LiteralPath $stagedBinary)) { Remove-Item -LiteralPath $stagedBinary -Force }
+    if ($backupBinary -and (Test-Path -LiteralPath $backupBinary)) { Remove-Item -LiteralPath $backupBinary -Force }
     if (Test-Path -LiteralPath $temporaryDirectory) { Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force }
 }
