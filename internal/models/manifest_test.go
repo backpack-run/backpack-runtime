@@ -7,6 +7,24 @@ import (
 
 const testDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+func TestParseManifestRejectsUnknownFutureSchema(t *testing.T) {
+	_, err := ParseManifest([]byte(`schema_version: 999
+model:
+  id: future
+packages:
+  - id: gguf
+    format: gguf
+    filename: model.gguf
+    sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    size_bytes: 1
+    runtime:
+      provider: llama.cpp
+`))
+	if err == nil || !strings.Contains(err.Error(), "newer than supported version") {
+		t.Fatalf("expected future schema rejection, got %v", err)
+	}
+}
+
 func TestLegacyRuntimeContractNormalization(t *testing.T) {
 	data := []byte(`schema_version: 1
 model:

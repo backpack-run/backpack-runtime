@@ -27,4 +27,6 @@ Before launch, the model-fit policy compares manifest estimates and artifact siz
 
 Runtime state defaults to `%LOCALAPPDATA%/Backpack` on Windows and `~/.backpack` elsewhere, with separate models, manifests, runtimes, cache, logs, state, config, and outputs directories. Managed runtimes use `runtimes/<engine>/<version>/<variant>`. `BACKPACK_HOME` provides an explicit test/development override.
 
+Persisted-state ownership and the migration path toward beta are documented in [state-migrations.md](state-migrations.md).
+
 The management API lives under `/api/backpack/v1`. OpenAI-compatible inference surfaces use `/v1` only where semantics match. The server is loopback-only until authentication and authorization exist.

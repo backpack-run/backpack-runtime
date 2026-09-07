@@ -10,6 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const MaxSupportedSchemaVersion = 2
+
 type Manifest struct {
 	SchemaVersion   int                 `yaml:"schema_version" json:"schema_version"`
 	Model           ModelInfo           `yaml:"model" json:"model"`
@@ -187,6 +189,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 func (m Manifest) Validate() error {
 	if m.SchemaVersion < 1 {
 		return errors.New("manifest schema_version must be at least 1")
+	}
+	if m.SchemaVersion > MaxSupportedSchemaVersion {
+		return fmt.Errorf("manifest schema_version %d is newer than supported version %d", m.SchemaVersion, MaxSupportedSchemaVersion)
 	}
 	if strings.TrimSpace(m.Model.ID) == "" {
 		return errors.New("manifest model.id is required")

@@ -1,5 +1,7 @@
 # API
 
+Public compatibility expectations are defined in [compatibility-policy.md](compatibility-policy.md). Alpha payloads may change with release notes; the `/api/backpack/v1` prefix is a routing version, not yet a beta stability promise.
+
 Implemented loopback endpoints:
 
 - `GET /api/backpack/v1/health`
