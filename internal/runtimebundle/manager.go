@@ -612,15 +612,16 @@ func extractTar(path, dst string) error {
 	// from later archive entries. Only relative, archive-internal, non-dangling
 	// symlinks are accepted; hard links and devices remain rejected.
 	for _, link := range symlinks {
-		resolved := filepath.Clean(filepath.Join(filepath.Dir(link.target), link.linkname))
-		if _, err = os.Stat(resolved); err != nil {
-			return fmt.Errorf("runtime archive contains dangling symlink %q: %w", link.target, err)
-		}
 		if err = os.MkdirAll(filepath.Dir(link.target), 0700); err != nil {
 			return err
 		}
 		if err = os.Symlink(link.linkname, link.target); err != nil {
 			return fmt.Errorf("create runtime symlink %q: %w", link.target, err)
+		}
+	}
+	for _, link := range symlinks {
+		if _, err = os.Stat(link.target); err != nil {
+			return fmt.Errorf("runtime archive contains dangling symlink %q: %w", link.target, err)
 		}
 	}
 	return nil

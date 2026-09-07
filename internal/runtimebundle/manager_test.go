@@ -234,7 +234,8 @@ func TestTarAllowsOnlyConfinedNonDanglingSymlinks(t *testing.T) {
 	}
 	archivePath := tarArchive(t, []tar.Header{
 		{Name: "runtime/libexample.so.1", Mode: 0755, Size: 6, Typeflag: tar.TypeReg},
-		{Name: "runtime/libexample.so", Mode: 0777, Typeflag: tar.TypeSymlink, Linkname: "libexample.so.1"},
+		{Name: "runtime/libexample.so", Mode: 0777, Typeflag: tar.TypeSymlink, Linkname: "libexample.so.0"},
+		{Name: "runtime/libexample.so.0", Mode: 0777, Typeflag: tar.TypeSymlink, Linkname: "libexample.so.1"},
 	})
 	destination := t.TempDir()
 	if err := extractTar(archivePath, destination); err != nil {
