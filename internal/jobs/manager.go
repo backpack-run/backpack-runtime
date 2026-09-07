@@ -310,6 +310,12 @@ func (m *Manager) reconcile() {
 			now := time.Now().UTC()
 			job.EndedAt = &now
 		}
+		// Artifact paths are deliberately excluded from public JSON responses.
+		// Reconstruct the confined path from persisted public metadata so a
+		// completed job's artifacts remain retrievable after daemon restart.
+		for index := range job.Artifacts {
+			job.Artifacts[index].Path = filepath.Join(m.paths.Outputs, job.ID, job.Artifacts[index].Filename)
+		}
 		m.jobs[job.ID] = &managed{public: job, cancel: func() {}}
 	}
 	m.persistLocked()

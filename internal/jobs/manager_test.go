@@ -2,6 +2,9 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -62,5 +65,46 @@ func TestRequestValidationAndUnavailableRunner(t *testing.T) {
 	_, err = m.Create(context.Background(), CreateRequest{Model: "video", Capability: "video-generation", Input: Input{Prompt: "test"}})
 	if err == nil || !strings.Contains(err.Error(), "no execution-validated runtime adapter") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompletedArtifactSurvivesManagerRestartWithoutPublicPath(t *testing.T) {
+	paths := config.NewPaths(t.TempDir())
+	jobID := "job-restart"
+	artifactID := "image"
+	directory, err := (artifacts.Manager{Root: paths.Outputs}).JobDirectory(jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(directory, "result.png")
+	if err = os.WriteFile(output, []byte("image bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prior := []*Job{{ID: jobID, Model: "image", Capability: "image-generation", Status: Completed, CreatedAt: time.Now().UTC(), Artifacts: []artifacts.Artifact{{ID: artifactID, Filename: "result.png", MediaType: "image/png"}}}}
+	data, err := json.Marshal(prior)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(paths.State, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(paths.State, "jobs.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(catalog.Catalog{}, paths, nil)
+	resolved, err := m.ArtifactPath(jobID, artifactID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != output {
+		t.Fatalf("resolved artifact %q, want %q", resolved, output)
+	}
+	public, err := json.Marshal(m.List()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(public), output) || strings.Contains(string(public), `"path"`) {
+		t.Fatalf("public job leaked artifact path: %s", public)
 	}
 }
