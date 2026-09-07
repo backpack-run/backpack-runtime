@@ -1,0 +1,63 @@
+name: Release qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-amd64-gguf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: {go-version: '1.24.x'}
+      - uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean
+      - name: Qualify clean Linux amd64 GGUF path
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check checksums.txt
+          archive=$(find . -maxdepth 1 -name 'backpack_*_linux_amd64.tar.gz' -print -quit)
+          test -n "$archive"
+          install_root=$(mktemp -d)
+          export BACKPACK_HOME=$(mktemp -d)
+          cleanup() {
+            if test -f "$BACKPACK_HOME/state/runtime.json"; then
+              pid=$(sed -n 's/.*"pid": \([0-9][0-9]*\).*/\1/p' "$BACKPACK_HOME/state/runtime.json" | head -1)
+              test -z "$pid" || kill "$pid" 2>/dev/null || true
+            fi
+            sleep 1
+            if pgrep -f "$BACKPACK_HOME" >/dev/null; then
+              echo 'Backpack left an orphaned process' >&2
+              pgrep -af "$BACKPACK_HOME" >&2
+              return 1
+            fi
+            rm -rf "$install_root" "$BACKPACK_HOME"
+          }
+          trap cleanup EXIT
+          tar -xzf "$archive" -C "$install_root"
+          backpack="$install_root/backpack"
+          test -x "$backpack"
+          "$backpack" version
+          "$backpack" doctor --json
+          "$backpack" models
+          "$backpack" pull smollm2-135m
+          output=$("$backpack" run smollm2-135m --gpu-layers 0 --prompt 'Reply with exactly BACKPACK_LINUX_OK')
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q BACKPACK_LINUX_OK
+          detached=$("$backpack" run smollm2-135m --gpu-layers 0 --detach)
+          printf '%s\n' "$detached"
+          session=$(printf '%s\n' "$detached" | awk '/Ready\. Session/{print $3; exit}')
+          test -n "$session"
+          "$backpack" ps | grep -q "$session"
+          "$backpack" stop "$session"
+          "$backpack" ps | grep -q 'No active sessions.'

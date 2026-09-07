@@ -22,3 +22,72 @@ func TestInstallersRequireChecksumsAndHTTPS(t *testing.T) {
 		}
 	}
 }
+
+func TestPowerShellInstallerHardening(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{"AllowAutoRedirect = $false", "Refusing non-HTTPS download", "Unsafe or unexpected archive entry", "Release archive is incomplete", "Downloaded binary did not report expected version", "[IO.File]::Replace"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("PowerShell installer is missing %q", required)
+		}
+	}
+	if strings.Contains(text, "Expand-Archive") {
+		t.Fatal("PowerShell installer performs broad archive extraction")
+	}
+}
+
+func TestShellInstallerHardening(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{"umask 077", "--proto-redir '=https'", "tar -tzf", "tar -tvzf", "downloaded binary did not report expected version", "staged_binary="} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("shell installer is missing %q", required)
+		}
+	}
+}
+
+func TestReleaseMetadataIsAlphaSafe(t *testing.T) {
+	root := filepath.Join("..", "..")
+	data, err := os.ReadFile(filepath.Join(root, ".goreleaser.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := string(data)
+	for _, required := range []string{"prerelease: auto", "draft: false", "make_latest: false", "THIRD_PARTY_NOTICES.md"} {
+		if !strings.Contains(config, required) {
+			t.Fatalf("release configuration is missing %q", required)
+		}
+	}
+	notes, err := os.ReadFile(filepath.Join(root, "docs", "releases", "v0.1.0-alpha.1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(notes), "first public alpha") || !strings.Contains(string(notes), "Windows x64") {
+		t.Fatal("alpha release notes are incomplete")
+	}
+}
+
+func TestReleaseWorkflowActionsAreImmutable(t *testing.T) {
+	root := filepath.Join("..", "..", ".github", "workflows")
+	for _, name := range []string{"ci.yml", "release.yml", "release-qualification.yml"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "- uses:") {
+				at := strings.LastIndex(line, "@")
+				if at < 0 || len(strings.Fields(line[at+1:])[0]) != 40 {
+					t.Fatalf("%s has an unpinned action: %s", name, line)
+				}
+			}
+		}
+	}
+}

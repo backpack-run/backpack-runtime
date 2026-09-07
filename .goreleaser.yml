@@ -23,7 +23,9 @@ archives:
 checksum:
   name_template: checksums.txt
 release:
-  draft: true
-  replace_existing_draft: true
+  name_template: "Backpack Runtime v{{ .Version }}"
+  draft: false
+  prerelease: auto
+  make_latest: false
 changelog:
   use: github-native
