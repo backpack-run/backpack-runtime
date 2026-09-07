@@ -14,20 +14,39 @@ CLI / Go client / external clients
 
 ## Status
 
-- **Supported:** SmolLM2 135M/1.7B and Qwen2.5 0.5B chat through managed llama.cpp, Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech on Windows x64.
+- **Release channel:** early alpha; APIs and behavior may change.
+- **Windows x64:** supported and execution-validated for this alpha.
+- **Linux x64 and macOS arm64:** experimental preview binaries. Linux GGUF qualification is tracked separately; macOS has not received real inference validation.
+- **Validated models on Windows:** SmolLM2 135M/1.7B and Qwen2.5 0.5B chat through managed llama.cpp, Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech.
 - **Experimental:** split GGUF, projector/vision contracts, managed-runtime SSH execution, and the generic media-job API.
 - **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.
 
 The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model compatibility](docs/model-compatibility.md).
 
-## Quick start
+## Install and quick start
 
-After installing a Backpack binary (the release pipeline is prepared; the first public release is still pending):
+The first public release is still pending. Once `v0.1.0-alpha.1` exists, download the installer from that immutable tag, inspect it, then run it with the explicit version:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/backpack-run/backpack-runtime/v0.1.0-alpha.1/scripts/install.ps1 -OutFile install.ps1
+.\install.ps1 -Version v0.1.0-alpha.1
+```
+
+Linux x64 and macOS arm64 preview:
+
+```sh
+curl --fail --proto '=https' --proto-redir '=https' --tlsv1.2 -o install.sh https://raw.githubusercontent.com/backpack-run/backpack-runtime/v0.1.0-alpha.1/scripts/install.sh
+sh install.sh v0.1.0-alpha.1
+```
+
+No pipe-to-shell installation is recommended. The installers verify the release archive against the matching GitHub Release checksum before replacing a user-local binary. Then try the smallest model first:
 
 ```console
+backpack version
+backpack doctor
 backpack models
 backpack pull smollm2-135m
-backpack run smollm2-135m --prompt "Say hello"
+backpack run smollm2-135m --prompt "Explain Backpack Runtime in one sentence."
 backpack transcribe sample.wav --model whisper-large-v3-turbo
 backpack speak "Hello from Backpack" --model kokoro-82m --output hello.wav
 backpack run smollm2-135m --detach
@@ -50,6 +69,8 @@ curl -N http://127.0.0.1:11434/v1/chat/completions -H "Content-Type: application
 The current runtime refuses non-loopback binds because remote API authentication is not implemented.
 
 The CLI does not require Go, llama.cpp, whisper.cpp, Python, qwen-asr, or Kokoro to be installed globally. Native engines, Python distributions, and isolated environments are installed into the Backpack data directory from pinned runtime definitions. Python runtimes are currently limited to Windows x64 CPU.
+
+Backpack stores models, runtime bundles, state, logs, and generated outputs under `%LOCALAPPDATA%\Backpack` on Windows and `~/.backpack` on Linux/macOS. Set `BACKPACK_HOME` only when you intentionally need an isolated location. Use `backpack list`, `backpack runtime list`, and `backpack doctor` to inspect it; use `backpack ps` and `backpack stop <session-id>` to cleanly stop loaded models.
 
 ## SSH compute (experimental)
 
@@ -83,4 +104,4 @@ Key code lives under `internal/models`, `internal/runtime`, `internal/adapters`,
 
 ## Security and licensing
 
-Read [SECURITY.md](SECURITY.md) before exposing or embedding the runtime. Source code is Apache-2.0. Runtime engines and models keep their own licenses; packaging never relicenses a model.
+Read [SECURITY.md](SECURITY.md) before exposing or embedding the runtime. Report ordinary alpha bugs through [GitHub Issues](https://github.com/backpack-run/backpack-runtime/issues) and vulnerabilities privately through GitHub Security Advisories. Source code is Apache-2.0. Runtime engines and models keep their own licenses; packaging never relicenses a model.
