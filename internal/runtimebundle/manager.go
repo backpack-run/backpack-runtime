@@ -202,6 +202,12 @@ func (m *Manager) ensureRemote(ctx context.Context, target compute.Target, in *I
 func (m *Manager) List() ([]Installed, error) {
 	var out []Installed
 	_ = filepath.Walk(m.Paths.Runtimes, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && info.IsDir() && path != m.Paths.Runtimes {
+			name := info.Name()
+			if strings.Contains(name, ".invalid-") || (strings.HasPrefix(name, ".") && strings.Contains(name, "-install-")) {
+				return filepath.SkipDir
+			}
+		}
 		if err == nil && info != nil && info.Name() == "manifest.json" {
 			b, e := os.ReadFile(path)
 			var x Installed

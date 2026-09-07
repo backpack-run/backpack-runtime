@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -167,6 +168,36 @@ func TestEnsureIsAtomicConcurrentAndCached(t *testing.T) {
 	}
 	if err = m.Verify(items[0]); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestListIgnoresQuarantinedAndStagingBundles(t *testing.T) {
+	root := t.TempDir()
+	m := &Manager{Paths: config.NewPaths(root)}
+	installed := Installed{SchemaVersion: 1, Engine: "llama.cpp", Version: "b1", Variant: "win-cpu"}
+	manifest, err := json.Marshal(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(m.Paths.Runtimes, "llama.cpp", "b1")
+	for _, directory := range []string{
+		filepath.Join(base, "win-cpu"),
+		filepath.Join(base, "win-cpu.invalid-123"),
+		filepath.Join(base, ".win-cpu-install-456"),
+	} {
+		if err = os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(directory, "manifest.json"), manifest, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || filepath.Base(items[0].Directory) != "win-cpu" {
+		t.Fatalf("listed internal runtime directories: %#v", items)
 	}
 }
 
