@@ -42,7 +42,7 @@ sh install.sh v0.1.0-alpha.1
 No pipe-to-shell installation is recommended. The installers verify the release archive against the matching GitHub Release checksum before replacing a user-local binary. Then try the smallest model first:
 
 ```console
-backpack version
+backpack --version
 backpack doctor
 backpack models
 backpack pull smollm2-135m

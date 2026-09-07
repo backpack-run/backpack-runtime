@@ -1,14 +1,17 @@
 package runtimebundle
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -192,6 +195,63 @@ func TestArchiveTraversalIsRejected(t *testing.T) {
 	err := extractZip(path, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "escapes") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func tarArchive(t *testing.T, entries []tar.Header) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "runtime.tar.gz")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(file)
+	w := tar.NewWriter(gz)
+	for i := range entries {
+		header := entries[i]
+		if err = w.WriteHeader(&header); err != nil {
+			t.Fatal(err)
+		}
+		if header.Typeflag == tar.TypeReg {
+			_, _ = io.WriteString(w, "binary")
+		}
+	}
+	if err = w.Close(); err == nil {
+		err = gz.Close()
+	}
+	if err == nil {
+		err = file.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestTarAllowsOnlyConfinedNonDanglingSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("managed tar runtimes are Linux/macOS variants; Windows test users cannot reliably create symlinks")
+	}
+	archivePath := tarArchive(t, []tar.Header{
+		{Name: "runtime/libexample.so.1", Mode: 0755, Size: 6, Typeflag: tar.TypeReg},
+		{Name: "runtime/libexample.so", Mode: 0777, Typeflag: tar.TypeSymlink, Linkname: "libexample.so.1"},
+	})
+	destination := t.TempDir()
+	if err := extractTar(archivePath, destination); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(destination, "runtime", "libexample.so"))
+	if err != nil || string(data) != "binary" {
+		t.Fatalf("symlink content=%q error=%v", data, err)
+	}
+
+	for name, linkname := range map[string]string{"escape": "../../outside", "absolute": "/outside", "dangling": "missing.so"} {
+		t.Run(name, func(t *testing.T) {
+			bad := tarArchive(t, []tar.Header{{Name: "runtime/link.so", Mode: 0777, Typeflag: tar.TypeSymlink, Linkname: linkname}})
+			if err := extractTar(bad, t.TempDir()); err == nil {
+				t.Fatalf("accepted symlink target %q", linkname)
+			}
+		})
 	}
 }
 

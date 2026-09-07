@@ -559,6 +559,8 @@ func extractTar(path, dst string) error {
 	defer gz.Close()
 	tr := tar.NewReader(gz)
 	count := 0
+	type pendingSymlink struct{ target, linkname string }
+	var symlinks []pendingSymlink
 	for {
 		h, e := tr.Next()
 		if e == io.EOF {
@@ -592,8 +594,33 @@ func extractTar(path, dst string) error {
 			if e != nil {
 				return e
 			}
+		case tar.TypeSymlink:
+			linkname := filepath.FromSlash(h.Linkname)
+			if linkname == "" || filepath.IsAbs(linkname) {
+				return fmt.Errorf("runtime archive contains unsafe symlink %q -> %q", h.Name, h.Linkname)
+			}
+			resolved := filepath.Clean(filepath.Join(filepath.Dir(target), linkname))
+			if !within(dst, resolved) {
+				return fmt.Errorf("runtime archive symlink escapes destination: %q -> %q", h.Name, h.Linkname)
+			}
+			symlinks = append(symlinks, pendingSymlink{target: target, linkname: linkname})
 		default:
 			return fmt.Errorf("runtime archive contains unsupported link/device %q", h.Name)
+		}
+	}
+	// Links are created only after regular files so they cannot redirect writes
+	// from later archive entries. Only relative, archive-internal, non-dangling
+	// symlinks are accepted; hard links and devices remain rejected.
+	for _, link := range symlinks {
+		resolved := filepath.Clean(filepath.Join(filepath.Dir(link.target), link.linkname))
+		if _, err = os.Stat(resolved); err != nil {
+			return fmt.Errorf("runtime archive contains dangling symlink %q: %w", link.target, err)
+		}
+		if err = os.MkdirAll(filepath.Dir(link.target), 0700); err != nil {
+			return err
+		}
+		if err = os.Symlink(link.linkname, link.target); err != nil {
+			return fmt.Errorf("create runtime symlink %q: %w", link.target, err)
 		}
 	}
 	return nil

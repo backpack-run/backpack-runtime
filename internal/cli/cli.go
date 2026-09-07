@@ -78,7 +78,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 	switch args[0] {
 	case "help", "--help", "-h":
 		return a.help()
-	case "version":
+	case "version", "--version", "-v":
 		fmt.Fprintln(out, "backpack", version)
 		return nil
 	case "models":
