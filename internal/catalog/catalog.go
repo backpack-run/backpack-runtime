@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -32,10 +33,41 @@ func Load() (Catalog, error) {
 	if err := json.Unmarshal(bundled, &c); err != nil {
 		return c, fmt.Errorf("load catalog: %w", err)
 	}
-	if c.SchemaVersion != 1 || len(c.Models) == 0 {
-		return c, fmt.Errorf("unsupported or empty catalog")
+	if err := c.Validate(); err != nil {
+		return c, err
 	}
 	return c, nil
+}
+
+var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+func (c Catalog) Validate() error {
+	if c.SchemaVersion != 1 || len(c.Models) == 0 {
+		return fmt.Errorf("unsupported or empty catalog")
+	}
+	identities := map[string]string{}
+	repositories := map[string]string{}
+	for _, model := range c.Models {
+		if model.ID == "" || model.Repository == "" || model.RuntimeEngine == "" || model.Status == "" || !revisionPattern.MatchString(model.Revision) {
+			return fmt.Errorf("catalog model %q has incomplete trusted metadata", model.ID)
+		}
+		repository := strings.ToLower(model.Repository)
+		if previous, exists := repositories[repository]; exists {
+			return fmt.Errorf("catalog repository %q is duplicated by %q and %q", model.Repository, previous, model.ID)
+		}
+		repositories[repository] = model.ID
+		for _, identity := range append([]string{model.ID}, model.Aliases...) {
+			key := strings.ToLower(strings.TrimSpace(identity))
+			if key == "" {
+				return fmt.Errorf("catalog model %q has an empty alias", model.ID)
+			}
+			if previous, exists := identities[key]; exists && previous != model.ID {
+				return fmt.Errorf("catalog identity %q is duplicated by %q and %q", identity, previous, model.ID)
+			}
+			identities[key] = model.ID
+		}
+	}
+	return nil
 }
 func (c Catalog) Resolve(name string) (Model, error) {
 	name = strings.ToLower(strings.TrimSpace(name))

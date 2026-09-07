@@ -10,6 +10,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/adapters/pythonworker"
 	"github.com/backpack-run/backpack-runtime/internal/adapters/whispercpp"
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
+	"github.com/backpack-run/backpack-runtime/internal/catalogverify"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/daemon"
@@ -28,6 +29,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -83,6 +85,8 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return nil
 	case "models":
 		return a.catalogList()
+	case "catalog":
+		return a.catalogCommand(ctx, args[1:])
 	case "pull":
 		return a.pull(ctx, args[1:])
 	case "list":
@@ -125,6 +129,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 func (a *app) commandHelp(command string) error {
 	usage := map[string]string{
 		"models":     "Usage: backpack models\n\nList the trusted model catalog and support status.\n",
+		"catalog":    "Usage: backpack catalog verify [--json]\n\nCompare the trusted catalog with public Backpack packages on Hugging Face.\n",
 		"pull":       "Usage: backpack pull <model>\n\nResolve, download, verify, and atomically install a model package.\n",
 		"list":       "Usage: backpack list\n\nList installed model packages.\n",
 		"inspect":    "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
@@ -157,6 +162,7 @@ func (a *app) help() error {
 Usage: backpack <command>
 
   models                  list the official catalog
+  catalog verify          detect trusted catalog/Hugging Face drift
   pull <model>            download and verify a package
   list                    list installed packages
   inspect <model>         show manifest/runtime compatibility
@@ -403,6 +409,46 @@ func (a *app) catalogList() error {
 			alias = m.Aliases[0]
 		}
 		fmt.Fprintf(a.out, "%-26s %-16s %-24s %s\n", alias, m.RuntimeEngine, strings.Join(m.Capabilities, ","), m.Status)
+	}
+	return nil
+}
+
+func (a *app) catalogCommand(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] != "verify" {
+		return fmt.Errorf("usage: backpack catalog verify [--json]")
+	}
+	fs := flag.NewFlagSet("catalog verify", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	asJSON := fs.Bool("json", false, "print machine-readable verification report")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: backpack catalog verify [--json]")
+	}
+	report, err := (catalogverify.Verifier{}).Verify(ctx, a.catalog)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		encoded, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Fprintln(a.out, string(encoded))
+	} else {
+		fmt.Fprintf(a.out, "%d HF packages discovered\n%d catalog packages represented\n", report.Discovered, report.Represented)
+		statuses := make([]string, 0, len(report.StatusCounts))
+		for status := range report.StatusCounts {
+			statuses = append(statuses, status)
+		}
+		sort.Strings(statuses)
+		for _, status := range statuses {
+			fmt.Fprintf(a.out, "%d %s\n", report.StatusCounts[status], status)
+		}
+		for _, issue := range report.Issues {
+			fmt.Fprintf(a.out, "- %s [%s]: %s\n", issue.Repository, issue.Code, issue.Message)
+		}
+	}
+	if len(report.Issues) > 0 {
+		return fmt.Errorf("catalog verification found %d issue(s)", len(report.Issues))
 	}
 	return nil
 }

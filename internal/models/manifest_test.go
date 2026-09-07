@@ -126,3 +126,52 @@ packages:
 		t.Fatalf("unexpected required files: %#v", files)
 	}
 }
+
+func TestGLM53FlashPublishedContractIsSingleGGUFWithProjector(t *testing.T) {
+	manifest := []byte(`schema_version: 1
+model:
+  id: glm-5-3-flash
+  architecture: Glm5NextForConditionalGeneration
+  tasks: [image-text-to-text]
+  input_modalities: [text, image]
+  output_modalities: [text]
+upstream:
+  repo: zai-org/GLM-5.3-Flash
+  revision: 690b705278a3a58e538fcb37c2ca8b5f9511213c
+packages:
+  - id: gguf-q4-k-m
+    format: gguf
+    precision: Q4_K_M
+    filename: GLM-5.3-Flash-Q4_K_M.gguf
+    sha256: 3e1f1720e869d98acd55a8f94b5efd78814a6ba0a2c2e4e609d637e9cca60406
+    size_bytes: 193813823776
+    runtime:
+      provider: llama.cpp
+      tested_revision: 8134115f88ed8018474e7db69afcfe97fb097fc4
+    hardware:
+      estimated_ram_gb: 233.71
+      estimated_vram_gb: 214.33
+      recommended_ram_gb: 263.78
+    projector:
+      id: mmproj-f16
+      role: multimodal-projector
+      format: gguf
+      precision: F16
+      filename: GLM-5.3-Flash-mmproj-F16.gguf
+      sha256: f64a2e935c899224054258d2372d9ad4c19b760141044292fa6ee0fb5ff36624
+      size_bytes: 1128047104
+`)
+	m, err := ParseManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := m.Packages[0]
+	files := pkg.RequiredFiles()
+	if len(pkg.ArtifactFiles()) != 1 || len(files) != 2 || files[1].Role != "multimodal-projector" {
+		t.Fatalf("unexpected GLM artifact contract: %#v", files)
+	}
+	runtime := m.RuntimeFor(pkg)
+	if runtime.Engine != "llama.cpp" || runtime.Version != "8134115f88ed8018474e7db69afcfe97fb097fc4" {
+		t.Fatalf("unexpected GLM runtime contract: %#v", runtime)
+	}
+}

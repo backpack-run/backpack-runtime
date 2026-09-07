@@ -133,6 +133,18 @@ func TestBuiltinWhisperRuntimeResolvesOnlyPublishedPlatform(t *testing.T) {
 	}
 }
 
+func TestManagedLlamaBundleDoesNotClaimGLMDevelopmentRevision(t *testing.T) {
+	c, err := LoadCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Catalog: c}
+	requirement := models.RuntimeRequirement{Engine: "llama.cpp", Version: "8134115f88ed8018474e7db69afcfe97fb097fc4"}
+	if _, _, err = m.Resolve(requirement, compute.Hardware{OS: "windows", Architecture: "amd64", Backends: []string{"cpu"}}); err == nil {
+		t.Fatal("managed b10618 bundle claimed an unvalidated GLM development revision")
+	}
+}
+
 func TestEnsureIsAtomicConcurrentAndCached(t *testing.T) {
 	data := archive(t, "bin/llama-server.exe", "binary")
 	fetch := &memoryFetcher{data: data}
