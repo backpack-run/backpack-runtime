@@ -16,7 +16,8 @@ CLI / Go client / external clients
 
 - **Release channel:** early alpha; APIs and behavior may change.
 - **Windows x64:** supported and execution-validated for this alpha.
-- **Linux x64 and macOS arm64:** experimental preview binaries. Linux GGUF qualification is tracked separately; macOS has not received real inference validation.
+- **Linux x64:** experimental preview binary; the release archive's CPU GGUF path has passed clean-home SmolLM2 inference and process-lifecycle qualification.
+- **macOS arm64:** experimental preview binary; cross-build/archive checks pass, but real inference has not been validated.
 - **Validated models on Windows:** SmolLM2 135M/1.7B and Qwen2.5 0.5B chat through managed llama.cpp, Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech.
 - **Experimental:** split GGUF, projector/vision contracts, managed-runtime SSH execution, and the generic media-job API.
 - **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.

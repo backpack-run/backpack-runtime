@@ -17,10 +17,10 @@ This is a living gate checklist. A checked item has direct evidence; compiling a
 - [x] Windows amd64, Linux amd64, and macOS arm64 release archive configuration with SHA-256 checksums
 - [x] checksum-verifying installer scripts and deterministic tests
 - [x] CLI help smoke and Go format/test/vet/build gates
-- [ ] clean Linux amd64 install and real core inference
+- [x] clean Linux amd64 release-archive install and real core inference
 - [ ] clean macOS arm64 install and real core inference
 - [ ] independent installer/security review
-- [ ] license/notice audit of every redistributed runtime archive
+- [x] license/notice audit of the release archive and managed llama.cpp, whisper.cpp, and uv runtime bundles
 - [ ] publish a prerelease tag and verify its downloaded artifacts
 
 Image, video, vision, larger GGUF models, and SSH may remain experimental and do not block alpha.

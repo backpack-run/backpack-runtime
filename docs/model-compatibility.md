@@ -4,7 +4,7 @@
 
 | Model | Capability | Package format | Runtime adapter | Local | SSH | Status | Notes |
 |---|---|---|---|---|---|---|---|
-| SmolLM2 135M Instruct | chat | GGUF Q4_K_M | managed llama.cpp | yes | experimental | supported | Real Windows daemon/session/SSE smoke passed; clean-home managed-bundle validation is recorded separately. SSH host test pending. |
+| SmolLM2 135M Instruct | chat | GGUF Q4_K_M | managed llama.cpp | Windows x64 and Linux amd64 CPU | experimental | supported | Real Windows daemon/session/SSE smoke and clean Linux release-archive pull/infer/detach/stop qualification passed. SSH host test pending. |
 | SmolLM2 1.7B Instruct | chat | GGUF Q4_K_M | managed llama.cpp | Windows x64 CPU | experimental | supported | Real pull/verify/launch/infer/stop returned `BACKPACK_SMOL_17_OK`. SSH host test pending. |
 | Qwen2.5 0.5B Instruct | chat | GGUF Q4_K_M | managed llama.cpp | Windows x64 CPU | experimental | supported | Real clean-home test returned `BACKPACK_QWEN_OK`; one-byte corruption was detected, repaired, and re-verified. |
 | Qwen3-Coder Next | chat/code | 4-part split GGUF | managed llama.cpp | contract only | contract only | experimental | All shard names/hashes are required; shard 1 is the entrypoint. Missing-shard tests pass. No 48.4 GB real download on this host. |
