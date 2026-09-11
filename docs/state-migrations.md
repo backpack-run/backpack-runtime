@@ -16,7 +16,7 @@ Backpack keeps user-owned state below `BACKPACK_HOME`. Model and runtime artifac
 
 ## Versioning rules
 
-Every persisted JSON document that must evolve will gain a top-level `schema_version`. Readers must distinguish three cases: migrate known older versions, read the current version, and reject unknown newer versions with an actionable error. Writes use a temporary file in the destination directory followed by atomic replacement and must propagate failures.
+Every persisted JSON document that must evolve uses a top-level `schema_version`. Readers distinguish three cases: migrate known older versions, read the current version, and reject unknown newer versions with an actionable error. Writes use a temporary file in the destination directory followed by atomic replacement and propagate failures where the owning API exposes them.
 
 Migrations are ordered, deterministic, idempotent, and covered by fixtures for every supported source version. A migration writes a backup before modifying non-reconstructable configuration. Reconstructable cache metadata may instead be rebuilt after checksum verification. Migration code must never launch a model, install dependencies, contact a compute target, or execute manifest-provided content.
 
@@ -56,7 +56,7 @@ If the backup path already exists with different contents, Backpack refuses migr
 | runtime `manifest.json` | version 1 (already present in alpha) | none required | runtime load/list refuses a newer version |
 | Python `environment.json` | version 3 (already present in alpha) | reconstructable cache; incompatible metadata is rebuilt | a newer/invalid environment is not reused |
 
-`state/runtime.json` is short-lived daemon ownership metadata rather than durable user configuration. It remains unversioned in this increment and is reconciled through health/PID ownership. Adding its schema without disrupting startup locking is remaining beta work. Generated artifacts are files plus metadata embedded in versioned job entries; output bytes are never rewritten by a state migration.
+`state/runtime.json` is short-lived daemon ownership metadata rather than durable user configuration. New writes include schema version 1, legacy unversioned ownership is accepted without rewriting, and future versions are refused. It remains reconciled through endpoint health and PID ownership rather than migrated or trusted as durable state. Generated artifacts are files plus metadata embedded in versioned job entries; output bytes are never rewritten by a state migration.
 
 The shared migration implementation lives in `internal/statemigrate`. It operates only on caller-supplied bytes and paths and has no network, process-launch, model, runtime, or compute dependencies.
 

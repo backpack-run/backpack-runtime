@@ -15,10 +15,11 @@ import (
 )
 
 type State struct {
-	PID       int       `json:"pid"`
-	Endpoint  string    `json:"endpoint"`
-	StartedAt time.Time `json:"started_at"`
-	Version   string    `json:"version"`
+	SchemaVersion int       `json:"schema_version"`
+	PID           int       `json:"pid"`
+	Endpoint      string    `json:"endpoint"`
+	StartedAt     time.Time `json:"started_at"`
+	Version       string    `json:"version"`
 }
 
 func statePath(p config.Paths) string { return filepath.Join(p.State, "runtime.json") }
@@ -30,12 +31,16 @@ func Read(p config.Paths) (State, error) {
 		return s, err
 	}
 	err = json.Unmarshal(data, &s)
+	if err == nil && s.SchemaVersion > 1 {
+		return State{}, fmt.Errorf("runtime state schema_version %d is newer than supported 1; upgrade Backpack", s.SchemaVersion)
+	}
 	return s, err
 }
 func Write(p config.Paths, s State) error {
 	if err := os.MkdirAll(p.State, 0700); err != nil {
 		return err
 	}
+	s.SchemaVersion = 1
 	data, _ := json.MarshalIndent(s, "", "  ")
 	tmp := statePath(p) + ".tmp"
 	if err := os.WriteFile(tmp, data, 0600); err != nil {

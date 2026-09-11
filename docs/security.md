@@ -13,6 +13,7 @@ Backpack treats model repositories and manifests as semi-trusted data, not execu
 - Uploaded audio and worker IPC use Backpack-controlled private paths. Generated artifact lookup is confined to the owning job directory.
 - Diagnostics omit credentials, SSH connection details, prompts, conversations, and the user's home path prefix.
 - Agent launchers use literal argv without a shell, child-only placeholder credentials, and Backpack-owned isolated config directories. Managed provider/model arguments cannot be replaced through passthrough flags. Backpack does not disable an agent's sandbox, approvals, or permission UI. OpenCode launches additionally disable automatic provider-model fetching, updates, default plugins, Claude configuration import, and automatic sharing in the child process.
+- Release installers and `backpack update` select only recognized platform archives over HTTPS, verify SHA-256 before restricted extraction, validate the embedded version, and stage replacement beside the destination. Tagged archives and checksums receive GitHub artifact attestations; the checksum and archive still share GitHub as a trust domain.
 
 ## Residual risk and release gates
 
@@ -21,3 +22,5 @@ Model parsers, native runtimes, Python wheels, and GPU drivers remain complex at
 The current service is single-user and loopback-only. Authentication, multi-user isolation, and public network exposure are explicitly out of scope. Report vulnerabilities privately through GitHub Security Advisories as described in the root `SECURITY.md`.
 
 Third-party agent executables remain independent trusted programs with their own update, telemetry, plugin, and workspace threat models. Backpack does not install them automatically. Initial isolated profiles disable nonessential hosted features, but users must still review the agent's own permissions before allowing file or shell changes.
+
+The stable `backpack.run` installer URLs are not deployed yet. Until their reviewed bytes and hosting headers are verified, the project does not advertise pipe-to-shell installation.
