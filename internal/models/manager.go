@@ -232,41 +232,126 @@ func (m *Manager) get(ctx context.Context, address string) ([]byte, error) {
 }
 func (m *Manager) downloadVerified(ctx context.Context, address, destination string, file File, sink events.Sink) error {
 	tmp := destination + ".part"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
-	if err != nil {
+	offset := int64(0)
+	if info, err := os.Stat(tmp); err == nil {
+		offset = info.Size()
+		if file.SizeBytes > 0 && offset > file.SizeBytes {
+			if err = os.Remove(tmp); err != nil {
+				return fmt.Errorf("discard oversized partial %s: %w", file.Filename, err)
+			}
+			offset = 0
+		}
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	defer out.Close()
+	if file.SizeBytes > 0 && offset == file.SizeBytes {
+		return finalizeDownload(tmp, destination, file)
+	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	req.Header.Set("User-Agent", "Backpack-Runtime")
+	if offset > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	}
 	res, err := m.Client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer res.Body.Close()
-	if res.StatusCode/100 != 2 {
+	if offset > 0 && res.StatusCode == http.StatusOK {
+		// The origin ignored Range. Restart safely rather than appending a full
+		// response to the partial file.
+		offset = 0
+	} else if res.StatusCode == http.StatusPartialContent {
+		if !validContentRangeStart(res.Header.Get("Content-Range"), offset) {
+			return fmt.Errorf("download %s returned an invalid Content-Range for offset %d", file.Filename, offset)
+		}
+	} else if res.StatusCode/100 != 2 {
 		return fmt.Errorf("download %s: %s", file.Filename, res.Status)
 	}
-	total := res.ContentLength
-	if total <= 0 {
-		total = file.SizeBytes
+	flags := os.O_CREATE | os.O_WRONLY
+	if offset == 0 {
+		flags |= os.O_TRUNC
 	}
+	out, err := os.OpenFile(tmp, flags, 0600)
+	if err != nil {
+		return err
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = out.Close()
+		}
+	}()
 	h := sha256.New()
-	reader := &progressReader{r: res.Body, total: total, sink: sink, label: file.Filename, last: time.Now()}
+	if offset > 0 {
+		existing, openErr := os.Open(tmp)
+		if openErr != nil {
+			return openErr
+		}
+		_, hashErr := io.CopyN(h, existing, offset)
+		closeErr := existing.Close()
+		if hashErr != nil {
+			return fmt.Errorf("hash partial %s: %w", file.Filename, hashErr)
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if _, err = out.Seek(offset, io.SeekStart); err != nil {
+			return err
+		}
+	}
+	total := file.SizeBytes
+	if total <= 0 {
+		total = offset + res.ContentLength
+	}
+	reader := &progressReader{r: res.Body, current: offset, total: total, sink: sink, label: file.Filename, last: time.Now()}
 	if _, err = io.Copy(io.MultiWriter(out, h), reader); err != nil {
 		return err
 	}
 	if err = out.Close(); err != nil {
 		return err
 	}
+	closed = true
+	info, err := os.Stat(tmp)
+	if err != nil {
+		return err
+	}
+	if file.SizeBytes > 0 && info.Size() != file.SizeBytes {
+		return fmt.Errorf("download %s is incomplete: received %d of %d bytes; retry to resume", file.Filename, info.Size(), file.SizeBytes)
+	}
 	actual := hex.EncodeToString(h.Sum(nil))
 	if !strings.EqualFold(actual, file.SHA256) {
-		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", file.Filename, file.SHA256, actual)
+		_ = os.Remove(tmp)
+		return fmt.Errorf("checksum mismatch for %s; discarded completed partial download", file.Filename)
 	}
-	if err = os.Remove(destination); err != nil && !os.IsNotExist(err) {
+	return installPartial(tmp, destination, file)
+}
+
+func validContentRangeStart(value string, expected int64) bool {
+	var start, end, total int64
+	if _, err := fmt.Sscanf(value, "bytes %d-%d/%d", &start, &end, &total); err != nil {
+		return false
+	}
+	return value == fmt.Sprintf("bytes %d-%d/%d", start, end, total) && start == expected && end >= start && total > end
+}
+
+func finalizeDownload(tmp, destination string, file File) error {
+	ok, err := verifyFile(tmp, file.SHA256)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("checksum mismatch for %s; discarded completed partial download", file.Filename)
+	}
+	return installPartial(tmp, destination, file)
+}
+
+func installPartial(tmp, destination string, file File) error {
+	if err := os.Remove(destination); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("replace corrupt artifact %s: %w", file.Filename, err)
 	}
-	if err = os.Rename(tmp, destination); err != nil {
+	if err := os.Rename(tmp, destination); err != nil {
 		return fmt.Errorf("install %s: %w", file.Filename, err)
 	}
 	return nil
