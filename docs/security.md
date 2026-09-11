@@ -12,7 +12,7 @@ Backpack treats model repositories and manifests as semi-trusted data, not execu
 - The HTTP service refuses non-loopback binding while authentication is absent. Image content accepts inline `data:image/...` only; network and filesystem URLs are rejected.
 - Uploaded audio and worker IPC use Backpack-controlled private paths. Generated artifact lookup is confined to the owning job directory.
 - Diagnostics omit credentials, SSH connection details, prompts, conversations, and the user's home path prefix.
-- Agent launchers use literal argv without a shell, child-only placeholder credentials, and Backpack-owned isolated config directories. Managed provider/model arguments cannot be replaced through passthrough flags. Backpack does not disable an agent's sandbox, approvals, or permission UI.
+- Agent launchers use literal argv without a shell, child-only placeholder credentials, and Backpack-owned isolated config directories. Managed provider/model arguments cannot be replaced through passthrough flags. Backpack does not disable an agent's sandbox, approvals, or permission UI. OpenCode launches additionally disable automatic provider-model fetching, updates, default plugins, Claude configuration import, and automatic sharing in the child process.
 
 ## Residual risk and release gates
 

@@ -21,4 +21,10 @@
 - [x] Add isolated Claude Code and Codex launch architecture, model/compute selection, passthrough arguments, and launch diagnostics.
 - [x] Add protocol-neutral inference translation plus tested Responses and Anthropic Messages compatibility subsets.
 - [x] Pass real installed Codex protocol and shell-tool-loop tests against a deterministic local inference fixture.
+- [x] Add experimental OpenCode launch with isolated OpenAI-compatible provider routing and no user-config mutation.
+- [x] Add explicit channel-aware, checksum-verified self-update with Unix rollback and safe Windows staging.
+- [x] Version and migrate compute-target, model, session, and job state with backups and future-version refusal.
+- [x] Add GitHub release attestations, hardened channel-aware installers, uninstall guidance, and a static `backpack.run` hosting contract.
+- [x] Add opt-in real macOS, Codex/model, and SSH release-qualification workflows.
 - [ ] Qualify at least one real Backpack coding model end-to-end with Codex and Claude Code; Claude executable and suitable model hardware are currently unavailable locally.
+- [ ] Deploy and independently review `backpack.run/install.sh` and `backpack.run/install.ps1`; both endpoints currently return 404.

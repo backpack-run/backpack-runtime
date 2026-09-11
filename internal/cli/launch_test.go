@@ -33,7 +33,7 @@ func TestLaunchListAndHelp(t *testing.T) {
 	if err := Run(context.Background(), []string{"launch", "list"}, &output, &output, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "Claude Code") || !strings.Contains(output.String(), "Codex CLI") {
+	if !strings.Contains(output.String(), "Claude Code") || !strings.Contains(output.String(), "Codex CLI") || !strings.Contains(output.String(), "OpenCode") {
 		t.Fatalf("unexpected launch list: %s", output.String())
 	}
 	output.Reset()

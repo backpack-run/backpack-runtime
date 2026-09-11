@@ -17,6 +17,7 @@ func Builtins() (*Registry, error) {
 	return NewRegistry(
 		Descriptor{ID: "claude", DisplayName: "Claude Code", ExecutableCandidates: []string{"claude"}, RequiredModelCapability: "code", RecommendedContextTokens: RecommendedAgentContext},
 		Descriptor{ID: "codex", DisplayName: "Codex CLI", ExecutableCandidates: []string{"codex"}, RequiredModelCapability: "code", RecommendedContextTokens: RecommendedAgentContext},
+		Descriptor{ID: "opencode", DisplayName: "OpenCode", ExecutableCandidates: []string{"opencode"}, RequiredModelCapability: "code", RecommendedContextTokens: RecommendedAgentContext},
 	)
 }
 
@@ -128,6 +129,68 @@ func CodexInvocation(options ProviderOptions) (Invocation, error) {
 	apiKey, _ := Secret("OPENAI_API_KEY", "backpack-local")
 	configHome, _ := Set("CODEX_HOME", options.ConfigDirectory)
 	environment, _ := NewEnvironmentOverlay(apiKey, configHome)
+	invocation := Invocation{Executable: options.Executable, ManagedArguments: managed, PassthroughArguments: passthrough, Environment: environment, IsolatedConfigDirectory: options.ConfigDirectory}
+	return invocation, invocation.Validate()
+}
+
+func OpenCodeInvocation(options ProviderOptions) (Invocation, error) {
+	if err := validateProviderOptions(options); err != nil {
+		return Invocation{}, err
+	}
+	if err := rejectManagedArguments("opencode", options.Passthrough, "-m", "--model"); err != nil {
+		return Invocation{}, err
+	}
+	payload := map[string]any{
+		"$schema":     "https://opencode.ai/config.json",
+		"model":       "backpack/" + options.Model,
+		"small_model": "backpack/" + options.Model,
+		"autoupdate":  false,
+		"provider": map[string]any{"backpack": map[string]any{
+			"npm":  "@ai-sdk/openai-compatible",
+			"name": "Backpack Runtime",
+			"options": map[string]any{
+				"baseURL": strings.TrimRight(options.Endpoint, "/") + "/v1",
+				"apiKey":  "backpack-local",
+			},
+			"models": map[string]any{options.Model: map[string]any{
+				"name":  options.Model,
+				"limit": map[string]int{"context": options.ContextTokens, "output": min(options.ContextTokens, 16384)},
+			}},
+		}},
+	}
+	configuration, err := json.Marshal(payload)
+	if err != nil {
+		return Invocation{}, err
+	}
+	managed, _ := NewArguments("--pure", "--model", "backpack/"+options.Model)
+	passthrough, err := NewArguments(options.Passthrough...)
+	if err != nil {
+		return Invocation{}, err
+	}
+	values := []Variable{}
+	for _, pair := range []struct{ name, value string }{
+		{"OPENCODE_CONFIG_DIR", options.ConfigDirectory},
+		{"OPENCODE_DISABLE_AUTOUPDATE", "true"},
+		{"OPENCODE_DISABLE_DEFAULT_PLUGINS", "true"},
+		{"OPENCODE_DISABLE_MODELS_FETCH", "true"},
+		{"OPENCODE_DISABLE_CLAUDE_CODE", "true"},
+		{"OPENCODE_AUTO_SHARE", "false"},
+	} {
+		value, valueErr := Set(pair.name, pair.value)
+		if valueErr != nil {
+			return Invocation{}, valueErr
+		}
+		values = append(values, value)
+	}
+	inline, err := Secret("OPENCODE_CONFIG_CONTENT", string(configuration))
+	if err != nil {
+		return Invocation{}, err
+	}
+	values = append(values, inline)
+	environment, err := NewEnvironmentOverlay(values...)
+	if err != nil {
+		return Invocation{}, err
+	}
 	invocation := Invocation{Executable: options.Executable, ManagedArguments: managed, PassthroughArguments: passthrough, Environment: environment, IsolatedConfigDirectory: options.ConfigDirectory}
 	return invocation, invocation.Validate()
 }

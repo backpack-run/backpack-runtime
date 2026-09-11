@@ -72,7 +72,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, whisper: whisper, qwenASR: qwenASR, kokoro: kokoro, runtimes: runtimes}
 	a.registry = backruntime.NewRegistry(llama, whisper, qwenASR, kokoro)
 	if len(args) == 0 {
-		return a.help()
+		return a.landing(ctx)
 	}
 	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
 		return a.commandHelp(args[0])
@@ -84,7 +84,9 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		fmt.Fprintln(out, "backpack", version)
 		return nil
 	case "models":
-		return a.catalogList()
+		return a.catalogList(args[1:])
+	case "model":
+		return a.modelCommand(ctx, args[1:])
 	case "catalog":
 		return a.catalogCommand(ctx, args[1:])
 	case "pull":
@@ -115,6 +117,8 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.runtimeCommand(ctx, args[1:])
 	case "doctor":
 		return a.doctor(ctx, args[1:])
+	case "update":
+		return a.update(ctx, args[1:])
 	case "jobs":
 		return a.jobsCommand(ctx, args[1:])
 	case "image":
@@ -130,14 +134,15 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 
 func (a *app) commandHelp(command string) error {
 	usage := map[string]string{
-		"models":     "Usage: backpack models\n\nList the trusted model catalog and support status.\n",
+		"models":     "Usage: backpack models [--json]\n\nList the trusted model catalog, installed state, and locally known size/fit.\n",
+		"model":      "Usage: backpack model show <model>\n\nShow trusted package, runtime, and local-fit details.\n",
 		"catalog":    "Usage: backpack catalog verify [--json]\n\nCompare the trusted catalog with public Backpack packages on Hugging Face.\n",
 		"pull":       "Usage: backpack pull <model>\n\nResolve, download, verify, and atomically install a model package.\n",
 		"list":       "Usage: backpack list\n\nList installed model packages.\n",
 		"inspect":    "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
 		"hardware":   "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
 		"run":        "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
-		"launch":     "Usage: backpack launch <list|doctor|claude|codex> [--model model] [--compute target] [--context tokens] [--keep-alive] [--force] [-- tool-args]\n\nExperimental: launches the real third-party agent with isolated Backpack provider routing.\n",
+		"launch":     "Usage: backpack launch <list|doctor|claude|codex|opencode> [--model model] [--compute target] [--context tokens] [--keep-alive] [--force] [-- tool-args]\n\nExperimental: launches the real third-party agent with isolated Backpack provider routing.\n",
 		"transcribe": "Usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target] [--force]\n",
 		"speak":      "Usage: backpack speak <text> --output file.wav [--model model] [--voice voice] [--speed n] [--compute target] [--force]\n",
 		"serve":      "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
@@ -146,6 +151,7 @@ func (a *app) commandHelp(command string) error {
 		"compute":    "Usage: backpack compute <list|add|show|test|doctor|remove> [arguments]\n",
 		"runtime":    "Usage: backpack runtime <list|show|install|verify|remove> [arguments]\n",
 		"doctor":     "Usage: backpack doctor [--json]\n\nPrint sanitized local diagnostics suitable for bug reports.\n",
+		"update":     "Usage: backpack update [--check] [--version version | --prerelease]\n\nExplicitly check for or install a SHA-256-verified GitHub release. Stable releases are selected by default.\n",
 		"jobs":       "Usage: backpack jobs <list|show|cancel> [arguments] [--json]\n",
 		"image":      "Usage: backpack image <model> --prompt text [--width n] [--height n] [--steps n] [--seed n] [--compute target]\n\nExperimental: submission requires an execution-validated image runner.\n",
 		"video":      "Usage: backpack video <model> --prompt text [--image path] [--frames n] [--fps n] [--steps n] [--seed n] [--compute target]\n\nExperimental: submission requires an execution-validated video runner.\n",
@@ -164,7 +170,8 @@ func (a *app) help() error {
 
 Usage: backpack <command>
 
-  models                  list the official catalog
+  models [--json]         list the official catalog and local status
+  model show <model>      show model package, runtime, and fit details
   catalog verify          detect trusted catalog/Hugging Face drift
   pull <model>            download and verify a package
   list                    list installed packages
@@ -180,6 +187,7 @@ Usage: backpack <command>
   compute <command>       manage local and SSH compute targets
   runtime <command>       inspect and manage inference runtimes
   doctor [--json]         print sanitized release diagnostics
+  update [flags]          explicitly check for or install a verified release
   jobs <command>          list, inspect, or cancel long-running jobs
   image <model> [flags]   submit an image-generation job (experimental)
   video <model> [flags]   submit a video-generation job (experimental)
@@ -394,27 +402,107 @@ func (a *app) doctor(ctx context.Context, args []string) error {
 		return fmt.Errorf("usage: backpack doctor [--json]")
 	}
 	report := diagnostics.Collect(ctx, a.version, a.paths, a.local, a.models, a.runtimes, compute.NewTargetStore(a.paths))
+	report.Update = a.updateDiagnostic(ctx)
 	if *asJSON {
 		data, _ := json.MarshalIndent(report, "", "  ")
 		fmt.Fprintln(a.out, string(data))
 		return nil
 	}
-	fmt.Fprintf(a.out, "Backpack %s\nPlatform: %s\nHome: %s\nDaemon: %v\nModels: %d installed, %d verified, %d corrupt\nRuntimes: %d installed, %d verified, %d corrupt\nCompute targets: %d\n", report.Version, report.Platform, report.BackpackHome, report.Daemon.Running, report.Models.Installed, report.Models.Verified, report.Models.Corrupt, report.Runtimes.Installed, report.Runtimes.Verified, report.Runtimes.Corrupt, len(report.ComputeTargets))
+	fmt.Fprintf(a.out, "Backpack %s\nPlatform: %s\nBinary: %s (on PATH: %v)\nUpdate: %s", report.Version, report.Platform, report.Binary.Path, report.Binary.InPath, report.Update.Status)
+	if report.Update.Target != "" {
+		fmt.Fprintf(a.out, " (%s)", report.Update.Target)
+	}
+	fmt.Fprintf(a.out, "\nHome: %s\nDaemon: %v\nModels: %d installed, %d verified, %d corrupt\nRuntimes: %d installed, %d verified, %d corrupt\nPython runtimes: %d\nCompute targets: %d\n", report.BackpackHome, report.Daemon.Running, report.Models.Installed, report.Models.Verified, report.Models.Corrupt, report.Runtimes.Installed, report.Runtimes.Verified, report.Runtimes.Corrupt, len(report.PythonRuntimes), len(report.ComputeTargets))
+	for _, integration := range report.Integrations {
+		status := "not found"
+		if integration.Installed {
+			status = integration.Version
+			if status == "" {
+				status = "installed"
+			}
+		}
+		fmt.Fprintf(a.out, "Agent %s: %s\n", integration.ID, status)
+	}
+	if len(report.ConfigurationOverrides) > 0 {
+		fmt.Fprintf(a.out, "Configuration overrides: %s\n", strings.Join(report.ConfigurationOverrides, ", "))
+	}
 	for _, problem := range report.KnownProblems {
 		fmt.Fprintln(a.out, "Problem:", problem)
 	}
 	return nil
 }
-func (a *app) catalogList() error {
-	fmt.Fprintf(a.out, "Official catalog %s\n\n", a.catalog.CatalogVersion)
-	for _, m := range a.catalog.Models {
-		alias := m.ID
-		if len(m.Aliases) > 0 {
-			alias = m.Aliases[0]
+
+type catalogModelSummary struct {
+	Name         string   `json:"name"`
+	DisplayName  string   `json:"display_name"`
+	Capabilities []string `json:"capabilities"`
+	Runtime      string   `json:"runtime"`
+	Status       string   `json:"status"`
+	Installed    bool     `json:"installed"`
+	SizeBytes    int64    `json:"size_bytes,omitempty"`
+	LocalFit     string   `json:"local_fit,omitempty"`
+}
+
+func (a *app) catalogList(args []string) error {
+	fs := flag.NewFlagSet("models", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	asJSON := fs.Bool("json", false, "emit machine-readable model summaries")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: backpack models [--json]")
+	}
+	hardware, _ := a.local.Inspect(context.Background())
+	summaries := make([]catalogModelSummary, 0, len(a.catalog.Models))
+	for _, entry := range a.catalog.Models {
+		name := entry.ID
+		if len(entry.Aliases) > 0 {
+			name = entry.Aliases[0]
 		}
-		fmt.Fprintf(a.out, "%-26s %-16s %-24s %s\n", alias, m.RuntimeEngine, strings.Join(m.Capabilities, ","), m.Status)
+		summary := catalogModelSummary{Name: name, DisplayName: entry.DisplayName, Capabilities: entry.Capabilities, Runtime: entry.RuntimeEngine, Status: entry.Status}
+		if installed, err := a.models.Installed(entry.ID); err == nil {
+			summary.Installed = true
+			summary.SizeBytes = installed.Package.SizeBytes
+			if hardware.OS != "" {
+				summary.LocalFit = string(fit.Evaluate(installed.Package, hardware).State)
+			}
+		}
+		summaries = append(summaries, summary)
+	}
+	if *asJSON {
+		encoded, _ := json.MarshalIndent(map[string]any{"catalog_version": a.catalog.CatalogVersion, "models": summaries}, "", "  ")
+		fmt.Fprintln(a.out, string(encoded))
+		return nil
+	}
+	fmt.Fprintf(a.out, "Official catalog %s\n\n", a.catalog.CatalogVersion)
+	fmt.Fprintln(a.out, "MODEL                      CAPABILITY               SIZE       FIT                 INSTALLED  STATUS")
+	for _, summary := range summaries {
+		size, localFit, installed := "-", "inspect", "no"
+		if summary.Installed {
+			size, localFit, installed = humanBytes(summary.SizeBytes), summary.LocalFit, "yes"
+		}
+		fmt.Fprintf(a.out, "%-26s %-24s %-10s %-19s %-10s %s\n", summary.Name, strings.Join(summary.Capabilities, ","), size, localFit, installed, summary.Status)
 	}
 	return nil
+}
+
+func (a *app) modelCommand(ctx context.Context, args []string) error {
+	if len(args) == 2 && args[0] == "show" {
+		return a.inspect(ctx, args[1:])
+	}
+	return fmt.Errorf("usage: backpack model show <model>")
+}
+
+func humanBytes(size int64) string {
+	if size <= 0 {
+		return "-"
+	}
+	const gib = 1024 * 1024 * 1024
+	if size >= gib {
+		return fmt.Sprintf("%.1f GiB", float64(size)/gib)
+	}
+	return fmt.Sprintf("%.0f MiB", float64(size)/(1024*1024))
 }
 
 func (a *app) catalogCommand(ctx context.Context, args []string) error {

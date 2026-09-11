@@ -1,0 +1,121 @@
+name: Extended release qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact immutable release tag to qualify
+        required: true
+        default: v0.1.0-alpha.1
+      coding_model:
+        description: Execution-qualified candidate model for the Codex job
+        required: true
+        default: qwen3-coder-30b-a3b
+      run_macos:
+        type: boolean
+        default: false
+      run_codex:
+        type: boolean
+        default: false
+      run_ssh:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64-core:
+    if: ${{ inputs.run_macos }}
+    runs-on: [self-hosted, macOS, ARM64, backpack-qualification]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {ref: '${{ inputs.release_tag }}'}
+      - name: Install immutable release and qualify managed GGUF
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          BACKPACK_HOME: ${{ runner.temp }}/backpack-qualification
+        run: |
+          set -euo pipefail
+          sh scripts/install.sh "$RELEASE_TAG"
+          export PATH="$HOME/.local/bin:$PATH"
+          backpack --version
+          backpack doctor --json
+          backpack models --json
+          backpack pull smollm2-135m
+          backpack run smollm2-135m --prompt 'Reply BACKPACK_MACOS_OK'
+          session=$(backpack run smollm2-135m --detach | awk '/Ready\. Session/{print $3; exit}')
+          test -n "$session"
+          backpack ps | grep -q "$session"
+          backpack stop "$session"
+          backpack ps | grep -q 'No active sessions.'
+
+  windows-codex-real-model:
+    if: ${{ inputs.run_codex }}
+    runs-on: [self-hosted, Windows, X64, backpack-qualification]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {ref: '${{ inputs.release_tag }}'}
+      - name: Install immutable release and run Codex edit/test gate
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CODING_MODEL: ${{ inputs.coding_model }}
+          BACKPACK_HOME: ${{ runner.temp }}\backpack-qualification
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\scripts\install.ps1 -Version $env:RELEASE_TAG
+          $bin = Join-Path $env:LOCALAPPDATA 'Programs\Backpack\bin\backpack.exe'
+          & $bin launch doctor codex --model $env:CODING_MODEL --json
+          $workspace = Join-Path $env:RUNNER_TEMP 'backpack-agent-workspace'
+          New-Item -ItemType Directory -Force $workspace | Out-Null
+          Set-Location $workspace
+          git init
+          & $bin launch codex --model $env:CODING_MODEL -- exec --skip-git-repo-check 'Create hello.txt containing exactly BACKPACK_CODEX_OK, read it back, and report success.'
+          if ((Get-Content -Raw .\hello.txt).Trim() -ne 'BACKPACK_CODEX_OK') { throw 'Codex real-model artifact mismatch' }
+          & $bin ps
+
+  ssh-real-host:
+    if: ${{ inputs.run_ssh }}
+    runs-on: [self-hosted, Linux, X64, backpack-qualification]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {ref: '${{ inputs.release_tag }}'}
+      - name: Validate required SSH qualification secrets
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.BACKPACK_SSH_HOST }}
+          SSH_USER: ${{ secrets.BACKPACK_SSH_USER }}
+          SSH_KNOWN_HOSTS: ${{ secrets.BACKPACK_SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.BACKPACK_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KNOWN_HOSTS" && test -n "$SSH_PRIVATE_KEY"
+      - name: Install immutable release and qualify SSH lifecycle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          BACKPACK_HOME: ${{ runner.temp }}/backpack-qualification
+          SSH_HOST: ${{ secrets.BACKPACK_SSH_HOST }}
+          SSH_USER: ${{ secrets.BACKPACK_SSH_USER }}
+          SSH_KNOWN_HOSTS: ${{ secrets.BACKPACK_SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.BACKPACK_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/backpack_ssh_key"
+          chmod 600 "$HOME/.ssh/known_hosts" "$RUNNER_TEMP/backpack_ssh_key"
+          sh scripts/install.sh "$RELEASE_TAG"
+          export PATH="$HOME/.local/bin:$PATH"
+          backpack compute add ssh qualification --host "$SSH_HOST" --user "$SSH_USER" --identity-file "$RUNNER_TEMP/backpack_ssh_key"
+          backpack compute doctor qualification
+          first=$(backpack run smollm2-135m --compute qualification --prompt 'Reply BACKPACK_SSH_OK')
+          printf '%s\n' "$first" | grep -q 'BACKPACK_SSH_OK'
+          second=$(backpack run smollm2-135m --compute qualification --prompt 'Reply BACKPACK_SSH_CACHE_OK')
+          printf '%s\n' "$second" | grep -q 'BACKPACK_SSH_CACHE_OK'
+          backpack ps

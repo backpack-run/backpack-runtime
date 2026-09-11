@@ -96,6 +96,27 @@ func TestWriteCodexModelCatalogUsesTrustedMetadata(t *testing.T) {
 	}
 }
 
+func TestOpenCodeInvocationUsesInlineIsolatedProvider(t *testing.T) {
+	root := t.TempDir()
+	invocation, err := OpenCodeInvocation(ProviderOptions{Endpoint: "http://127.0.0.1:11434", Model: "coder", ContextTokens: 65536, ConfigDirectory: root, Executable: filepath.Join(root, "opencode"), Passthrough: []string{"run", "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(invocation.Args(), " ")
+	if !strings.Contains(joined, "--pure --model backpack/coder run hello") {
+		t.Fatalf("unexpected OpenCode arguments: %s", joined)
+	}
+	environment := strings.Join(invocation.Environment.Apply([]string{"OPENCODE_CONFIG_CONTENT=user", "OPENCODE_AUTO_SHARE=true"}), "\n")
+	for _, required := range []string{"OPENCODE_CONFIG_DIR=" + root, "OPENCODE_DISABLE_MODELS_FETCH=true", "OPENCODE_AUTO_SHARE=false", `"baseURL":"http://127.0.0.1:11434/v1"`} {
+		if !strings.Contains(environment, required) {
+			t.Fatalf("missing %q in OpenCode child environment", required)
+		}
+	}
+	if strings.Contains(invocation.Environment.String(), "backpack-local") {
+		t.Fatal("OpenCode diagnostics leaked inline provider credentials")
+	}
+}
+
 func mustRead(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)

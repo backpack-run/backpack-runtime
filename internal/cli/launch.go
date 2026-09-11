@@ -27,14 +27,14 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack launch <list|doctor|claude|codex> [flags] [-- tool-args]")
+		return fmt.Errorf("usage: backpack launch <list|doctor|claude|codex|opencode> [flags] [-- tool-args]")
 	}
 	if args[0] == "list" {
 		return a.launchList(registry)
 	}
 	if args[0] == "doctor" {
 		if len(args) < 2 {
-			return fmt.Errorf("usage: backpack launch doctor <claude|codex> [--model model] [--compute target] [--json]")
+			return fmt.Errorf("usage: backpack launch doctor <claude|codex|opencode> [--model model] [--compute target] [--json]")
 		}
 		return a.launchDoctor(ctx, registry, args[1], args[2:])
 	}
@@ -134,6 +134,8 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		if err = integrations.WriteCodexModelCatalog(integrations.CodexCatalogOptions{Model: entry, ContextTokens: desiredContext, Path: options.CatalogPath}); err == nil {
 			invocation, err = integrations.CodexInvocation(options)
 		}
+	case "opencode":
+		invocation, err = integrations.OpenCodeInvocation(options)
 	default:
 		err = fmt.Errorf("integration %q has no launch builder", descriptor.ID)
 	}
@@ -174,7 +176,7 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 	if fs.NArg() != 0 {
 		return fmt.Errorf("usage: backpack launch doctor %s [--model model] [--compute target] [--json]", integrationID)
 	}
-	report := map[string]any{"integration": descriptor.ID, "display_name": descriptor.DisplayName, "required_api": map[string]string{"claude": "Anthropic Messages /v1/messages", "codex": "OpenAI Responses /v1/responses"}[descriptor.ID], "compute": *computeName, "agent_qualified": false}
+	report := map[string]any{"integration": descriptor.ID, "display_name": descriptor.DisplayName, "required_api": map[string]string{"claude": "Anthropic Messages /v1/messages", "codex": "OpenAI Responses /v1/responses", "opencode": "OpenAI Chat Completions /v1/chat/completions"}[descriptor.ID], "compute": *computeName, "agent_qualified": false}
 	if installation, detectErr := integrations.NewDiscovery().Detect(descriptor); detectErr == nil {
 		report["installed"] = true
 		report["executable"] = installation.Executable
@@ -314,6 +316,8 @@ func integrationInstallInstructions(id string) string {
 		return "Install Claude Code from the official instructions: https://code.claude.com/docs/en/setup"
 	case "codex":
 		return "Install Codex CLI from the official package: npm install -g @openai/codex"
+	case "opencode":
+		return "Install OpenCode from the official instructions: https://opencode.ai/docs/"
 	default:
 		return "Install the integration tool from its official source and ensure it is on PATH."
 	}

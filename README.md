@@ -27,6 +27,15 @@ sh install.sh v0.1.0-alpha.1
 
 No pipe-to-shell installation is recommended. The installers verify the release archive against the matching GitHub Release checksum before replacing a user-local binary. See [installation details](docs/install.md).
 
+Updates are explicit and channel-aware; Backpack never updates in the background:
+
+```console
+backpack update --check --prerelease
+backpack update --prerelease
+```
+
+Stable releases are selected by default. See [update and rollback behavior](docs/update.md) and [uninstall](docs/uninstall.md).
+
 ## Quick start
 
 Try the smallest model first:
@@ -55,6 +64,7 @@ Experimental coding-agent launch support is available for installed third-party 
 backpack launch list
 backpack launch doctor codex --model qwen3-coder-next
 backpack launch codex --model qwen3-coder-next
+backpack launch opencode --model qwen3-coder-next
 ```
 
 ## What works
@@ -64,10 +74,10 @@ backpack launch codex --model qwen3-coder-next
 - **Linux x64:** experimental preview binary; the release archive's CPU GGUF path has passed clean-home SmolLM2 inference and process-lifecycle qualification.
 - **macOS arm64:** experimental preview binary; cross-build/archive checks pass, but real inference has not been validated.
 - **Validated models on Windows:** SmolLM2 135M/1.7B and Qwen2.5 0.5B chat through managed llama.cpp, Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech.
-- **Experimental:** Codex/Claude launch and compatibility APIs, split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
+- **Experimental:** Codex/Claude/OpenCode launch and compatibility APIs, split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
 - **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.
 
-The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model compatibility](docs/model-compatibility.md).
+The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model usage](docs/models.md) and the detailed [compatibility matrix](docs/model-compatibility.md).
 
 ## How it works
 

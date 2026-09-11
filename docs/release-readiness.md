@@ -1,5 +1,7 @@
 # Release readiness
 
+The evidence matrix for current platforms, modalities, agents, compute targets, and large/media models is maintained in [qualification-matrix.md](qualification-matrix.md).
+
 This is a living gate checklist. A checked item has direct evidence; compiling a platform is not equivalent to executing on it.
 
 ## First public alpha
