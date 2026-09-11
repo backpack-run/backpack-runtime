@@ -13,6 +13,8 @@ other clients -/          |
                               Job -> Artifact
 ```
 
+External coding agents sit above the same API boundary. Codex uses the experimental Responses adapter and Claude Code uses the experimental Anthropic Messages adapter. Both translate to one neutral inference request before the existing session/runtime path. Launch integrations own only executable discovery, child-scoped provider configuration, model/compute selection, and process invocation; they do not implement agent behavior or enter `RuntimeAdapter`.
+
 The model resolver maps a stable alias to a versioned catalog entry and immutable repository revision. Metadata-only resolution happens before large downloads so model-fit policy can refuse unsuitable hardware. The model manager validates complete split sets and typed auxiliary artifacts, downloads, verifies SHA-256, atomically installs, and records installed state. It emits events and never prints UI text.
 
 A normalized `RuntimeRequirement` is resolved by the runtime manager against a separate trusted catalog. The manager inspects the compute target, selects a platform/backend variant, downloads only HTTPS artifacts, verifies catalog-pinned SHA-256 digests, safely extracts them, writes a per-file installed manifest, and atomically commits a versioned runtime directory. Multiple versions coexist. Adapters receive an installed executable and do not own download policy.

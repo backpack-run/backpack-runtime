@@ -18,3 +18,7 @@
 - [x] Add persistent cancellable jobs, structured progress, confined output artifacts, HTTP routes, CLI surfaces, and public Go client types.
 - [ ] Register image/video runners only after immutable package contracts and real GPU execution are validated.
 - [x] Extend the generic public client/event contract; managed Backpack Compute remains out of scope.
+- [x] Add isolated Claude Code and Codex launch architecture, model/compute selection, passthrough arguments, and launch diagnostics.
+- [x] Add protocol-neutral inference translation plus tested Responses and Anthropic Messages compatibility subsets.
+- [x] Pass real installed Codex protocol and shell-tool-loop tests against a deterministic local inference fixture.
+- [ ] Qualify at least one real Backpack coding model end-to-end with Codex and Claude Code; Claude executable and suitable model hardware are currently unavailable locally.

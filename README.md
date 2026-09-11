@@ -49,6 +49,14 @@ backpack ps
 backpack stop <session-id>
 ```
 
+Experimental coding-agent launch support is available for installed third-party tools. No Backpack coding model is agent-qualified yet; see [launch status](docs/launch.md).
+
+```console
+backpack launch list
+backpack launch doctor codex --model qwen3-coder-next
+backpack launch codex --model qwen3-coder-next
+```
+
 ## What works
 
 - **Release channel:** early alpha; APIs and behavior may change.
@@ -56,7 +64,7 @@ backpack stop <session-id>
 - **Linux x64:** experimental preview binary; the release archive's CPU GGUF path has passed clean-home SmolLM2 inference and process-lifecycle qualification.
 - **macOS arm64:** experimental preview binary; cross-build/archive checks pass, but real inference has not been validated.
 - **Validated models on Windows:** SmolLM2 135M/1.7B and Qwen2.5 0.5B chat through managed llama.cpp, Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech.
-- **Experimental:** split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
+- **Experimental:** Codex/Claude launch and compatibility APIs, split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
 - **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.
 
 The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model compatibility](docs/model-compatibility.md).
@@ -96,6 +104,8 @@ curl http://127.0.0.1:11434/api/backpack/v1/health
 curl http://127.0.0.1:11434/v1/models
 curl -N http://127.0.0.1:11434/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"smollm2-135m","messages":[{"role":"user","content":"Hello"}],"stream":true}'
 ```
+
+Experimental `POST /v1/responses` and `POST /v1/messages` adapters support the subsets exercised by the launch integrations. They do not claim general OpenAI or Anthropic API parity.
 
 ## Repositories
 

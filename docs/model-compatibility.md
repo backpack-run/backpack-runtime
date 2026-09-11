@@ -2,6 +2,8 @@
 
 "Supported" means the pull/verify/launch/infer/stop path was exercised, not merely that a manifest parses.
 
+Agent qualification is stricter: the package must declare code and tool-calling capability and complete a real external-agent file/tool session. The current catalog has no model with a trusted `tool-calling` declaration, so no model is Codex- or Claude-qualified yet. The Responses adapter itself has passed an installed Codex shell-tool round trip using a deterministic inference fixture.
+
 | Model | Capability | Package format | Runtime adapter | Local | SSH | Status | Notes |
 |---|---|---|---|---|---|---|---|
 | SmolLM2 135M Instruct | chat | GGUF Q4_K_M | managed llama.cpp | Windows x64 and Linux amd64 CPU | experimental | supported | Real Windows daemon/session/SSE smoke and clean Linux release-archive pull/infer/detach/stop qualification passed. SSH host test pending. |
@@ -16,3 +18,13 @@
 | Kokoro 82M | speech | PyTorch | isolated Python / kokoro 0.9.4 | Windows x64 CPU | unavailable | supported | Schema-v3 hash-locked rebuild and real WAV synthesis passed; RIFF/WAVE output validated. |
 | Z-Image-Turbo | image generation | hybrid: Backpack INT8 transformer + immutable upstream components | diffusers 0.40.0 | no | no | package-change-required | Contract pins transformer/text encoder/tokenizer/VAE/scheduler and about 32.8 GB upstream bytes. No complete executable package or GPU output validation. |
 | Wan2.2 TI2V 5B | text/image-to-video | hybrid: Backpack INT8 transformer + immutable Diffusers components | diffusers 0.40.0 | no | no | package-change-required | Contract declares both TI2V tasks and a 24 GB VRAM profile. No complete executable package or GPU output validation. |
+
+## Coding-agent qualification
+
+| Model | Inference | Code declared | Tool calling declared | Codex | Claude Code |
+|---|---|---|---|---|---|
+| Qwen3-Coder Next | contract only | yes | no | unqualified | unqualified |
+| Qwen3-Coder 30B A3B | preflight only | yes | no | unqualified | unqualified |
+| Devstral Small 2 24B | contract only | yes | no | unqualified | unqualified |
+| GLM-5.3 Flash | preflight only | no | no | not offered | not offered |
+| SmolLM2 / Qwen2.5 small models | validated chat | no | no | not offered | not offered |
