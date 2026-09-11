@@ -1,22 +1,26 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$')]
+    [ValidatePattern('^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$')]
     [string]$Version,
+    [ValidateSet('latest', 'stable')]
+    [string]$Channel,
     [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'Programs\Backpack\bin')
 )
 
 $ErrorActionPreference = 'Stop'
 $repository = 'https://github.com/backpack-run/backpack-runtime'
-$releaseVersion = $Version.TrimStart('v')
-$archive = "backpack_${releaseVersion}_windows_amd64.zip"
+$apiRepository = 'https://api.github.com/repos/backpack-run/backpack-runtime'
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("backpack-install-" + [Guid]::NewGuid().ToString('N'))
 $stagedBinary = $null
 $backupBinary = $null
 
-if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
-    throw 'This installer supports Windows x64 only.'
-}
+if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) { throw 'This installer supports Windows x64 only.' }
+if (-not $Version) { $Version = $env:BACKPACK_VERSION }
+if (-not $Channel) { $Channel = if ($env:BACKPACK_CHANNEL) { $env:BACKPACK_CHANNEL } else { 'latest' } }
+if ($Channel -notin @('latest', 'stable')) { throw 'Channel must be latest or stable.' }
+if (-not $InstallDirectory) { throw 'InstallDirectory must not be empty.' }
+$versionPattern = '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
+if ($Version -and $Version -notmatch $versionPattern) { throw "Invalid Backpack version: $Version" }
 
 function Save-HttpsFile {
     param([Parameter(Mandatory = $true)][Uri]$Uri, [Parameter(Mandatory = $true)][string]$Destination)
@@ -54,6 +58,26 @@ function Save-HttpsFile {
 
 try {
     New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+    $metadataPath = Join-Path $temporaryDirectory 'release.json'
+    if ($Version) {
+        $metadataUrl = "$apiRepository/releases/tags/$Version"
+    } elseif ($Channel -eq 'stable') {
+        $metadataUrl = "$apiRepository/releases/latest"
+    } else {
+        $metadataUrl = "$apiRepository/releases?per_page=1"
+    }
+    Save-HttpsFile -Uri $metadataUrl -Destination $metadataPath
+    $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+    $release = @($metadata)[0]
+    if (-not $release -or "$($release.tag_name)" -notmatch $versionPattern) { throw 'GitHub returned invalid release metadata.' }
+    if ($release.draft) { throw 'Refusing to install a draft release.' }
+    if ($Version -and "$($release.tag_name)" -cne $Version) { throw "GitHub release metadata did not match requested version $Version." }
+    $Version = "$($release.tag_name)"
+    if ($Channel -eq 'stable' -and $release.prerelease) { throw 'Stable channel resolved to a prerelease; refusing installation.' }
+    if ($release.prerelease) { Write-Warning "Installing prerelease $Version (interfaces and behavior may change)." }
+
+    $releaseVersion = $Version.Substring(1)
+    $archive = "backpack_${releaseVersion}_windows_amd64.zip"
     $archivePath = Join-Path $temporaryDirectory $archive
     $checksumsPath = Join-Path $temporaryDirectory 'checksums.txt'
     Save-HttpsFile -Uri "$repository/releases/download/$Version/$archive" -Destination $archivePath
@@ -84,10 +108,8 @@ try {
             try { $source.CopyTo($destinationStream) } finally { $destinationStream.Dispose() }
         } finally { $source.Dispose() }
     } finally { $zip.Dispose() }
-    $reportedVersion = & $candidate version
-    if ($LASTEXITCODE -ne 0 -or "$reportedVersion" -notmatch [regex]::Escape($releaseVersion)) {
-        throw "Downloaded binary did not report expected version $releaseVersion."
-    }
+    $reportedVersion = (& $candidate version | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $reportedVersion -cne "backpack $releaseVersion") { throw "Downloaded binary did not report expected version $releaseVersion." }
     New-Item -ItemType Directory -Force -Path $InstallDirectory | Out-Null
     $destination = Join-Path $InstallDirectory 'backpack.exe'
     $stagedBinary = Join-Path $InstallDirectory ('.backpack-install-' + [Guid]::NewGuid().ToString('N') + '.exe')

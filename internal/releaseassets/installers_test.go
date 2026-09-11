@@ -20,6 +20,11 @@ func TestInstallersRequireChecksumsAndHTTPS(t *testing.T) {
 		if strings.Contains(text, "StrictHostKeyChecking=no") || strings.Contains(text, "http://") {
 			t.Fatalf("%s contains an insecure transport option", name)
 		}
+		for _, required := range []string{"BACKPACK_VERSION", "BACKPACK_CHANNEL", "latest", "stable", "release.json"} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s is missing release selection control %q", name, required)
+			}
+		}
 	}
 }
 
@@ -29,7 +34,7 @@ func TestPowerShellInstallerHardening(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, required := range []string{"AllowAutoRedirect = $false", "Refusing non-HTTPS download", "Unsafe or unexpected archive entry", "Release archive is incomplete", "Downloaded binary did not report expected version", "[IO.File]::Replace", "$backupBinary"} {
+	for _, required := range []string{"AllowAutoRedirect = $false", "Refusing non-HTTPS download", "Unsafe or unexpected archive entry", "Release archive is incomplete", "Downloaded binary did not report expected version", "[IO.File]::Replace", "$backupBinary", "@($metadata)[0]", "Refusing to install a draft release"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("PowerShell installer is missing %q", required)
 		}
@@ -48,9 +53,22 @@ func TestShellInstallerHardening(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, required := range []string{"umask 077", "--proto-redir '=https'", "tar -tzf", "tar -tvzf", "downloaded binary did not report expected version", "staged_binary="} {
+	for _, required := range []string{"umask 077", "--proto-redir '=https'", "tar -tzf", "tar -tvzf", "downloaded binary did not report expected version", "staged_binary=", "metadata_value", "refusing to install a draft release"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("shell installer is missing %q", required)
+		}
+	}
+}
+
+func TestReleaseWorkflowPublishesProvenance(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{"id-token: write", "attestations: write", "actions/attest@", "dist/*.zip", "dist/*.tar.gz", "dist/checksums.txt"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("release workflow is missing provenance setting %q", required)
 		}
 	}
 }
@@ -85,7 +103,7 @@ func TestReleaseWorkflowActionsAreImmutable(t *testing.T) {
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "- uses:") {
+			if strings.HasPrefix(line, "- uses:") || strings.HasPrefix(line, "uses:") {
 				at := strings.LastIndex(line, "@")
 				if at < 0 || len(strings.Fields(line[at+1:])[0]) != 40 {
 					t.Fatalf("%s has an unpinned action: %s", name, line)
