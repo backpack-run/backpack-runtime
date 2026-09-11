@@ -107,6 +107,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/backpack/v1/sessions/{id}", s.getSession)
 	mux.HandleFunc("DELETE /api/backpack/v1/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
+	mux.HandleFunc("POST /v1/responses", s.responses)
+	mux.HandleFunc("POST /v1/messages", s.anthropicMessages)
 	mux.HandleFunc("POST /v1/audio/transcriptions", s.transcriptions)
 	mux.HandleFunc("POST /v1/audio/speech", s.speech)
 	mux.HandleFunc("GET /api/backpack/v1/events", s.eventStream)
