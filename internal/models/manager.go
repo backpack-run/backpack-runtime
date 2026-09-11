@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,7 +16,14 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/events"
+	"github.com/backpack-run/backpack-runtime/internal/statemigrate"
 )
+
+type installedRecord struct {
+	Repository string `json:"repository"`
+	Revision   string `json:"revision"`
+	Package    string `json:"package"`
+}
 
 type Installed struct {
 	ID, Repository, Revision, Directory string
@@ -64,9 +70,10 @@ func (m *Manager) Pull(ctx context.Context, entry catalog.Model, sink events.Sin
 	if err := atomicWrite(filepath.Join(dir, "backpack-model.yaml"), manifestBytes); err != nil {
 		return nil, err
 	}
-	record := struct{ Repository, Revision, Package string }{entry.Repository, entry.Revision, pkg.ID}
-	state, _ := json.MarshalIndent(record, "", "  ")
-	_ = atomicWrite(filepath.Join(m.Paths.Manifests, entry.ID+".json"), state)
+	record := installedRecord{Repository: entry.Repository, Revision: entry.Revision, Package: pkg.ID}
+	if err := statemigrate.WriteRecord(filepath.Join(m.Paths.Manifests, entry.ID+".json"), record); err != nil {
+		return nil, fmt.Errorf("write installed model state: %w", err)
+	}
 	events.Emit(sink, events.Event{Type: events.ModelVerifyComplete, Kind: events.Complete, Message: "Package installed and verified"})
 	return &Installed{entry.ID, entry.Repository, entry.Revision, dir, manifest, pkg, manifest.RuntimeFor(pkg)}, nil
 }
@@ -115,15 +122,12 @@ func acceptedManifestID(entry catalog.Model, id string) bool {
 }
 
 func (m *Manager) Installed(id string) (*Installed, error) {
-	b, err := os.ReadFile(filepath.Join(m.Paths.Manifests, id+".json"))
+	statePath := filepath.Join(m.Paths.Manifests, id+".json")
+	r, err := statemigrate.ReadRecord[installedRecord](statePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("model %q is not installed; run `backpack pull %s`", id, id)
 		}
-		return nil, err
-	}
-	var r struct{ Repository, Revision, Package string }
-	if err := json.Unmarshal(b, &r); err != nil {
 		return nil, fmt.Errorf("read installed model state: %w", err)
 	}
 	dir := filepath.Join(m.Paths.Models, id, r.Revision, r.Package)

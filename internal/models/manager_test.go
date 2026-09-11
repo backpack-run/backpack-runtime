@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,6 +51,43 @@ packages:
 	if installed.Runtime.Engine != "llama.cpp" {
 		t.Fatalf("runtime %q", installed.Runtime.Engine)
 	}
+}
+
+func TestInstalledModelRecordMigratesAndRejectsFutureVersion(t *testing.T) {
+	t.Run("legacy", func(t *testing.T) {
+		paths := config.NewPaths(t.TempDir())
+		if err := os.MkdirAll(paths.Manifests, 0700); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(paths.Manifests, "test.json")
+		legacy := []byte(`{"repository":"org/model","revision":"abc","package":"q4"}`)
+		if err := os.WriteFile(path, legacy, 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = NewManager(paths).Installed("test")
+		if backup, err := os.ReadFile(path + ".v0.bak"); err != nil || string(backup) != string(legacy) {
+			t.Fatalf("backup=%q err=%v", backup, err)
+		}
+	})
+	t.Run("future", func(t *testing.T) {
+		paths := config.NewPaths(t.TempDir())
+		if err := os.MkdirAll(paths.Manifests, 0700); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(paths.Manifests, "test.json")
+		original := []byte(`{"schema_version":2,"repository":"org/model","revision":"abc","package":"q4"}`)
+		if err := os.WriteFile(path, original, 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := NewManager(paths).Installed("test")
+		if err == nil || !strings.Contains(err.Error(), "newer than supported") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != string(original) {
+			t.Fatal("future model state was modified")
+		}
+	})
 }
 
 func TestResolvePackageDoesNotDownloadWeights(t *testing.T) {

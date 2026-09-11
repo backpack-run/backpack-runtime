@@ -1,13 +1,13 @@
 package compute
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"github.com/backpack-run/backpack-runtime/internal/config"
+	"github.com/backpack-run/backpack-runtime/internal/statemigrate"
 )
 
 type TargetStore struct{ Path string }
@@ -16,15 +16,11 @@ func NewTargetStore(paths config.Paths) TargetStore {
 	return TargetStore{filepath.Join(paths.Config, "compute-targets.json")}
 }
 func (s TargetStore) List() ([]SSHConfig, error) {
-	data, err := os.ReadFile(s.Path)
+	items, err := statemigrate.ReadList[SSHConfig](s.Path, "targets")
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
-	}
-	var items []SSHConfig
-	if err = json.Unmarshal(data, &items); err != nil {
 		return nil, fmt.Errorf("read compute targets: %w", err)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -85,11 +81,5 @@ func (s TargetStore) write(items []SSHConfig) error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0700); err != nil {
 		return err
 	}
-	data, _ := json.MarshalIndent(items, "", "  ")
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	_ = os.Remove(s.Path)
-	return os.Rename(tmp, s.Path)
+	return statemigrate.WriteList(s.Path, "targets", items)
 }

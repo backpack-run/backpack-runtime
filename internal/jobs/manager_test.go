@@ -93,6 +93,12 @@ func TestCompletedArtifactSurvivesManagerRestartWithoutPublicPath(t *testing.T) 
 	}
 
 	m := New(catalog.Catalog{}, paths, nil)
+	if m.StateError() != nil {
+		t.Fatal(m.StateError())
+	}
+	if _, err = os.Stat(filepath.Join(paths.State, "jobs.json.v0.bak")); err != nil {
+		t.Fatalf("legacy job state was not backed up: %v", err)
+	}
 	resolved, err := m.ArtifactPath(jobID, artifactID)
 	if err != nil {
 		t.Fatal(err)
@@ -106,5 +112,28 @@ func TestCompletedArtifactSurvivesManagerRestartWithoutPublicPath(t *testing.T) 
 	}
 	if strings.Contains(string(public), output) || strings.Contains(string(public), `"path"`) {
 		t.Fatalf("public job leaked artifact path: %s", public)
+	}
+}
+
+func TestFutureJobStateIsRefusedAndPreserved(t *testing.T) {
+	paths := config.NewPaths(t.TempDir())
+	if err := os.MkdirAll(paths.State, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(paths.State, "jobs.json")
+	original := []byte(`{"schema_version":2,"jobs":[]}`)
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := New(catalog.Catalog{}, paths, nil)
+	if m.StateError() == nil || !strings.Contains(m.StateError().Error(), "newer than supported") {
+		t.Fatalf("unexpected state error: %v", m.StateError())
+	}
+	if _, err := m.Create(context.Background(), CreateRequest{}); err == nil {
+		t.Fatal("manager accepted a write with future state")
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(original) {
+		t.Fatal("future job state was modified")
 	}
 }

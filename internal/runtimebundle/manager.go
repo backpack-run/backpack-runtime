@@ -201,7 +201,7 @@ func (m *Manager) ensureRemote(ctx context.Context, target compute.Target, in *I
 
 func (m *Manager) List() ([]Installed, error) {
 	var out []Installed
-	_ = filepath.Walk(m.Paths.Runtimes, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(m.Paths.Runtimes, func(path string, info os.FileInfo, err error) error {
 		if err == nil && info != nil && info.IsDir() && path != m.Paths.Runtimes {
 			name := info.Name()
 			if strings.Contains(name, ".invalid-") || (strings.HasPrefix(name, ".") && strings.Contains(name, "-install-")) {
@@ -212,12 +212,18 @@ func (m *Manager) List() ([]Installed, error) {
 			b, e := os.ReadFile(path)
 			var x Installed
 			if e == nil && json.Unmarshal(b, &x) == nil {
+				if x.SchemaVersion > 1 {
+					return fmt.Errorf("runtime state %s schema_version %d is newer than supported 1; upgrade Backpack", path, x.SchemaVersion)
+				}
 				x.Directory = filepath.Dir(path)
 				out = append(out, x)
 			}
 		}
 		return nil
 	})
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Engine+out[i].Version+out[i].Variant < out[j].Engine+out[j].Version+out[j].Variant
 	})
@@ -249,6 +255,9 @@ func (m *Manager) load(r Runtime, v Variant) (*Installed, error) {
 	var in Installed
 	if err = json.Unmarshal(b, &in); err != nil {
 		return nil, err
+	}
+	if in.SchemaVersion > 1 {
+		return nil, fmt.Errorf("runtime state %s schema_version %d is newer than supported 1; upgrade Backpack", filepath.Join(dir, "manifest.json"), in.SchemaVersion)
 	}
 	in.Directory = dir
 	if _, err = m.verify(in); err != nil {

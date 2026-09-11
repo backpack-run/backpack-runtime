@@ -213,6 +213,28 @@ func TestListIgnoresQuarantinedAndStagingBundles(t *testing.T) {
 	}
 }
 
+func TestListRejectsFutureRuntimeState(t *testing.T) {
+	paths := config.NewPaths(t.TempDir())
+	directory := filepath.Join(paths.Runtimes, "llama.cpp", "future", "cpu")
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"schema_version":2,"engine":"llama.cpp","version":"future","variant":"cpu"}`)
+	path := filepath.Join(directory, "manifest.json")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := Manager{Paths: paths}
+	_, err := m.List()
+	if err == nil || !strings.Contains(err.Error(), "newer than supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(original) {
+		t.Fatal("future runtime state was modified")
+	}
+}
+
 func TestEnsureRejectsChecksumMismatchAndCleansStage(t *testing.T) {
 	data := archive(t, "llama-server.exe", "binary")
 	c := testCatalog(data)

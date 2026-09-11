@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,29 @@ func (f *fakeProcess) Stop(context.Context) error {
 		close(f.done)
 	}
 	return nil
+}
+
+func TestFutureSessionStateIsRefusedAndPreserved(t *testing.T) {
+	paths := config.NewPaths(t.TempDir())
+	if err := os.MkdirAll(paths.State, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(paths.State, "sessions.json")
+	original := []byte(`{"schema_version":2,"sessions":[]}`)
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := New(catalog.Catalog{}, models.NewManager(paths), backruntime.NewRegistry(), paths)
+	if m.StateError() == nil || !strings.Contains(m.StateError().Error(), "newer than supported") {
+		t.Fatalf("unexpected state error: %v", m.StateError())
+	}
+	if _, err := m.Create(context.Background(), CreateRequest{}); err == nil {
+		t.Fatal("manager accepted a write with future state")
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(original) {
+		t.Fatal("future session state was modified")
+	}
 }
 
 type fakeAdapter struct{}

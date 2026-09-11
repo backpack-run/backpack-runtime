@@ -3,7 +3,6 @@ package jobs
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/events"
+	"github.com/backpack-run/backpack-runtime/internal/statemigrate"
 )
 
 type State string
@@ -79,12 +79,13 @@ type managed struct {
 	cancel context.CancelFunc
 }
 type Manager struct {
-	mu      sync.Mutex
-	catalog catalog.Catalog
-	paths   config.Paths
-	runners map[string]Runner
-	jobs    map[string]*managed
-	sink    events.Sink
+	mu       sync.Mutex
+	catalog  catalog.Catalog
+	paths    config.Paths
+	runners  map[string]Runner
+	jobs     map[string]*managed
+	sink     events.Sink
+	stateErr error
 }
 
 func New(c catalog.Catalog, paths config.Paths, sink events.Sink, runners ...Runner) *Manager {
@@ -92,11 +93,14 @@ func New(c catalog.Catalog, paths config.Paths, sink events.Sink, runners ...Run
 	for _, runner := range runners {
 		m.runners[strings.ToLower(runner.Capability())] = runner
 	}
-	m.reconcile()
+	m.stateErr = m.reconcile()
 	return m
 }
 
 func (m *Manager) Create(ctx context.Context, request CreateRequest) (*Job, error) {
+	if m.stateErr != nil {
+		return nil, m.stateErr
+	}
 	entry, err := m.catalog.Resolve(request.Model)
 	if err != nil {
 		return nil, err
@@ -201,6 +205,9 @@ func (m *Manager) List() []*Job {
 func (m *Manager) Get(id string) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.stateErr != nil {
+		return nil, m.stateErr
+	}
 	item, ok := m.jobs[id]
 	if !ok {
 		return nil, fmt.Errorf("job %q was not found", id)
@@ -209,6 +216,11 @@ func (m *Manager) Get(id string) (*Job, error) {
 }
 func (m *Manager) Cancel(id string) error {
 	m.mu.Lock()
+	if m.stateErr != nil {
+		err := m.stateErr
+		m.mu.Unlock()
+		return err
+	}
 	item, ok := m.jobs[id]
 	if !ok {
 		m.mu.Unlock()
@@ -281,27 +293,25 @@ func newID() string {
 	return fmt.Sprintf("job-%x", value)
 }
 func (m *Manager) statePath() string { return filepath.Join(m.paths.State, "jobs.json") }
+func (m *Manager) StateError() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stateErr
+}
 func (m *Manager) persistLocked() {
 	items := make([]*Job, 0, len(m.jobs))
 	for _, x := range m.jobs {
 		items = append(items, clone(x.public))
 	}
-	data, _ := json.MarshalIndent(items, "", "  ")
-	_ = os.MkdirAll(m.paths.State, 0700)
-	tmp := m.statePath() + ".tmp"
-	if os.WriteFile(tmp, data, 0600) == nil {
-		_ = os.Remove(m.statePath())
-		_ = os.Rename(tmp, m.statePath())
-	}
+	_ = statemigrate.WriteList(m.statePath(), "jobs", items)
 }
-func (m *Manager) reconcile() {
-	data, err := os.ReadFile(m.statePath())
-	if err != nil {
-		return
+func (m *Manager) reconcile() error {
+	prior, err := statemigrate.ReadList[*Job](m.statePath(), "jobs")
+	if os.IsNotExist(err) {
+		return nil
 	}
-	var prior []*Job
-	if json.Unmarshal(data, &prior) != nil {
-		return
+	if err != nil {
+		return fmt.Errorf("read job state: %w", err)
 	}
 	for _, job := range prior {
 		if job.Status == Queued || job.Status == Preparing || job.Status == Loading || job.Status == Running {
@@ -319,6 +329,7 @@ func (m *Manager) reconcile() {
 		m.jobs[job.ID] = &managed{public: job, cancel: func() {}}
 	}
 	m.persistLocked()
+	return nil
 }
 func (m *Manager) emit(job *Job, eventType string, kind events.Kind, message string, p Progress) {
 	events.Emit(m.sink, events.Event{Type: eventType, Kind: kind, Message: message, JobID: job.ID, ModelID: job.Model, Current: int64(p.Step), Total: int64(p.Total)})

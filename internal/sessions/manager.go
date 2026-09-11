@@ -3,7 +3,6 @@ package sessions
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/fit"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
+	"github.com/backpack-run/backpack-runtime/internal/statemigrate"
 )
 
 type Options struct {
@@ -41,6 +41,7 @@ type Manager struct {
 	targets  map[string]compute.Target
 	sessions map[string]*managed
 	sink     events.Sink
+	stateErr error
 }
 type managed struct {
 	public  *backruntime.Session
@@ -55,7 +56,7 @@ func New(c catalog.Catalog, mm *models.Manager, registry *backruntime.Registry, 
 func NewWithEvents(c catalog.Catalog, mm *models.Manager, registry *backruntime.Registry, paths config.Paths, sink events.Sink) *Manager {
 	local := compute.Local{}
 	m := &Manager{catalog: c, models: mm, registry: registry, paths: paths, local: local, targets: map[string]compute.Target{"local": local}, sessions: map[string]*managed{}, sink: sink}
-	m.reconcile()
+	m.stateErr = m.reconcile()
 	return m
 }
 
@@ -66,6 +67,9 @@ func (m *Manager) RegisterTarget(target compute.Target) {
 }
 
 func (m *Manager) Create(ctx context.Context, request CreateRequest) (*backruntime.Session, error) {
+	if m.stateErr != nil {
+		return nil, m.stateErr
+	}
 	installed, adapter, computeTarget, err := m.resolve(ctx, request.Model, request.Compute, request.Options.Force)
 	if err != nil {
 		return nil, err
@@ -265,6 +269,9 @@ func (m *Manager) List() []*backruntime.Session {
 func (m *Manager) Get(id string) (*backruntime.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.stateErr != nil {
+		return nil, m.stateErr
+	}
 	s, ok := m.sessions[id]
 	if !ok {
 		return nil, fmt.Errorf("session %q was not found", id)
@@ -283,6 +290,11 @@ func (m *Manager) Endpoint(id string) (string, error) {
 }
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	m.mu.Lock()
+	if m.stateErr != nil {
+		err := m.stateErr
+		m.mu.Unlock()
+		return err
+	}
 	s, ok := m.sessions[id]
 	if !ok {
 		m.mu.Unlock()
@@ -363,27 +375,25 @@ func newID() string {
 	return fmt.Sprintf("sess-%x", value)
 }
 func (m *Manager) statePath() string { return filepath.Join(m.paths.State, "sessions.json") }
+func (m *Manager) StateError() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stateErr
+}
 func (m *Manager) persistLocked() {
 	items := make([]*backruntime.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
 		items = append(items, clone(s.public))
 	}
-	data, _ := json.MarshalIndent(items, "", "  ")
-	_ = os.MkdirAll(m.paths.State, 0700)
-	tmp := m.statePath() + ".tmp"
-	if os.WriteFile(tmp, data, 0600) == nil {
-		_ = os.Remove(m.statePath())
-		_ = os.Rename(tmp, m.statePath())
-	}
+	_ = statemigrate.WriteList(m.statePath(), "sessions", items)
 }
-func (m *Manager) reconcile() {
-	data, err := os.ReadFile(m.statePath())
-	if err != nil {
-		return
+func (m *Manager) reconcile() error {
+	prior, err := statemigrate.ReadList[*backruntime.Session](m.statePath(), "sessions")
+	if os.IsNotExist(err) {
+		return nil
 	}
-	var prior []*backruntime.Session
-	if json.Unmarshal(data, &prior) != nil {
-		return
+	if err != nil {
+		return fmt.Errorf("read session state: %w", err)
 	}
 	for _, s := range prior {
 		if s.Status == "ready" || s.Status == "starting" || s.Status == "stopping" {
@@ -394,4 +404,5 @@ func (m *Manager) reconcile() {
 		m.sessions[s.ID] = &managed{public: s}
 	}
 	m.persistLocked()
+	return nil
 }
