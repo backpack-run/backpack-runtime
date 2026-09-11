@@ -109,7 +109,8 @@ try {
         } finally { $source.Dispose() }
     } finally { $zip.Dispose() }
     $reportedVersion = (& $candidate version | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $reportedVersion -cne "backpack $releaseVersion") { throw "Downloaded binary did not report expected version $releaseVersion." }
+    $reportedVersionPattern = '^backpack ' + [regex]::Escape($releaseVersion) + '(?:\s|$)'
+    if ($LASTEXITCODE -ne 0 -or $reportedVersion -cnotmatch $reportedVersionPattern) { throw "Downloaded binary did not report expected version $releaseVersion." }
     New-Item -ItemType Directory -Force -Path $InstallDirectory | Out-Null
     $destination = Join-Path $InstallDirectory 'backpack.exe'
     $stagedBinary = Join-Path $InstallDirectory ('.backpack-install-' + [Guid]::NewGuid().ToString('N') + '.exe')

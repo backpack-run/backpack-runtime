@@ -112,7 +112,10 @@ tar -tzf "$temporary_directory/$archive" | awk '
 tar -tvzf "$temporary_directory/$archive" | awk 'substr($0,1,1) != "-" { exit 1 }' || { echo "release archive contains non-regular entries" >&2; exit 1; }
 tar -xzf "$temporary_directory/$archive" -C "$temporary_directory" backpack
 reported_version=$("$temporary_directory/backpack" version)
-[ "$reported_version" = "backpack $release_version" ] || { echo "downloaded binary did not report expected version $release_version" >&2; exit 1; }
+case "$reported_version" in
+  "backpack $release_version"|"backpack $release_version "*) ;;
+  *) echo "downloaded binary did not report expected version $release_version" >&2; exit 1 ;;
+esac
 mkdir -p "$install_directory"
 staged_binary="$install_directory/.backpack-install-$$"
 install -m 0755 "$temporary_directory/backpack" "$staged_binary"

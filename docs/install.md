@@ -15,15 +15,15 @@ The script supports Windows PowerShell 5.1 and PowerShell 7. It installs to `%LO
 ```powershell
 Invoke-WebRequest https://raw.githubusercontent.com/backpack-run/backpack-runtime/main/scripts/install.ps1 -OutFile install.ps1
 Get-Content .\install.ps1
-.\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 Select the stable channel or an exact release:
 
 ```powershell
-.\install.ps1 -Channel stable
-.\install.ps1 -Version v0.1.0-alpha.1
-$env:BACKPACK_VERSION = 'v0.1.0-alpha.1'; .\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Channel stable
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.1.0-alpha.1
+$env:BACKPACK_VERSION = 'v0.1.0-alpha.1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ### Linux amd64 and macOS arm64

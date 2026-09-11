@@ -96,7 +96,7 @@ func TestReleaseMetadataIsAlphaSafe(t *testing.T) {
 
 func TestReleaseWorkflowActionsAreImmutable(t *testing.T) {
 	root := filepath.Join("..", "..", ".github", "workflows")
-	for _, name := range []string{"catalog-verify.yml", "ci.yml", "release.yml", "release-qualification.yml"} {
+	for _, name := range []string{"catalog-verify.yml", "ci.yml", "extended-qualification.yml", "release.yml", "release-qualification.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)
