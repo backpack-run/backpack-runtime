@@ -97,6 +97,8 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.hardware(ctx)
 	case "run":
 		return a.run(ctx, args[1:])
+	case "launch":
+		return a.launchCommand(ctx, args[1:])
 	case "transcribe":
 		return a.transcribe(ctx, args[1:])
 	case "speak":
@@ -135,6 +137,7 @@ func (a *app) commandHelp(command string) error {
 		"inspect":    "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
 		"hardware":   "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
 		"run":        "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
+		"launch":     "Usage: backpack launch <list|doctor|claude|codex> [--model model] [--compute target] [--context tokens] [--keep-alive] [--force] [-- tool-args]\n\nExperimental: launches the real third-party agent with isolated Backpack provider routing.\n",
 		"transcribe": "Usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target] [--force]\n",
 		"speak":      "Usage: backpack speak <text> --output file.wav [--model model] [--voice voice] [--speed n] [--compute target] [--force]\n",
 		"serve":      "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
@@ -168,6 +171,7 @@ Usage: backpack <command>
   inspect <model>         show manifest/runtime compatibility
   hardware                inspect local compute
   run <model> [flags]     create an API-owned session and chat
+  launch <integration>    launch an external coding agent through Backpack (experimental)
   transcribe <audio>      transcribe audio through the runtime API
   speak <text>            synthesize speech through the runtime API
   serve [--address addr]  start the loopback runtime API
