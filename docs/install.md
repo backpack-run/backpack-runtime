@@ -10,7 +10,7 @@ The default channel is `latest`: the most recently published, non-draft GitHub R
 
 ### Windows x64
 
-The script supports Windows PowerShell 5.1 and PowerShell 7. It installs to `%LOCALAPPDATA%\Programs\Backpack\bin` unless `-InstallDirectory` is provided.
+The script supports Windows PowerShell 5.1 and PowerShell 7. It installs to `%LOCALAPPDATA%\Programs\Backpack\bin`, adds that directory to the user `PATH`, and updates the current PowerShell process. `backpack --version` therefore works immediately after the short `irm | iex` command. An installer launched in a separate child PowerShell cannot alter its parent's process environment, but the persisted user `PATH` applies to subsequently launched processes.
 
 ```powershell
 irm https://backpack.run/install.ps1 | iex
@@ -25,11 +25,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Channel stable
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.1.0-alpha.1
 $env:BACKPACK_VERSION = 'v0.1.0-alpha.1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+$env:BACKPACK_MODIFY_PATH = '0'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -NoModifyPath
 ```
 
 ### Linux amd64 and macOS arm64
 
-The POSIX script installs to `~/.local/bin` unless a second positional argument is provided.
+The POSIX script installs to `~/.local/bin` unless a second positional argument is provided. It adds the default directory idempotently to `~/.profile`, `~/.zprofile`, or the Fish configuration according to `SHELL`. Because a child `sh` cannot change its parent shell, open a new terminal afterward. Custom installation directories are not written to shell profiles automatically.
 
 ```sh
 curl -fsSL https://backpack.run/install.sh | sh
@@ -45,6 +47,7 @@ sh install.sh
 BACKPACK_CHANNEL=stable sh install.sh
 sh install.sh v0.1.0-alpha.1
 BACKPACK_VERSION=v0.1.0-alpha.1 sh install.sh
+BACKPACK_MODIFY_PATH=0 sh install.sh
 ```
 
 Linux and macOS runtime support may be narrower than archive availability. Check the compatibility matrix and run `backpack doctor` after installation.
@@ -62,9 +65,10 @@ Both installers:
 - require the executable to report the exact selected version;
 - stage replacement beside the destination, then replace it atomically;
 - clean temporary and staging files on success or failure; and
-- do not modify `PATH`, request elevation, or invoke a global package manager.
+- update only the current/user `PATH` on Windows or one user shell profile for the default POSIX location, unless explicitly disabled;
+- make `PATH` changes idempotently without requesting elevation or invoking a global package manager.
 
-Open a new terminal or add the installation directory to `PATH` yourself. Re-running an installer safely replaces an existing installation when the executable is not currently locked by another process.
+Set `BACKPACK_MODIFY_PATH=0` on either platform, or pass `-NoModifyPath` on Windows, to disable `PATH` changes. Re-running an installer does not duplicate its managed `PATH` entry and safely replaces an existing installation when the executable is not currently locked by another process.
 
 SHA-256 binds an archive to the checksum file, but both files share the GitHub Release trust boundary. Tagged releases additionally receive GitHub artifact attestations. See [Release provenance](release-provenance.md) for verification and trust assumptions.
 

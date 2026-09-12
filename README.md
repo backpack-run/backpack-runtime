@@ -22,7 +22,7 @@ Linux x64 and macOS arm64 preview:
 curl -fsSL https://backpack.run/install.sh | sh
 ```
 
-The installer selects the newest published release, warns before installing a prerelease, and verifies the archive against the matching GitHub Release checksum before replacing a user-local binary. For an inspect-first or version-pinned installation, see [installation details](docs/install.md).
+The installer selects the newest published release, warns before installing a prerelease, verifies the archive against the matching GitHub Release checksum, and configures the user `PATH` without requiring elevation. For an inspect-first, version-pinned, or no-`PATH` installation, see [installation details](docs/install.md).
 
 Updates are explicit and channel-aware; Backpack never updates in the background:
 

@@ -4,7 +4,7 @@ umask 077
 
 usage() {
   echo "usage: install.sh [vVERSION] [INSTALL_DIRECTORY]" >&2
-  echo "       BACKPACK_VERSION=vVERSION BACKPACK_CHANNEL=latest|stable sh install.sh" >&2
+  echo "       BACKPACK_VERSION=vVERSION BACKPACK_CHANNEL=latest|stable BACKPACK_MODIFY_PATH=0|1 sh install.sh" >&2
   exit 2
 }
 
@@ -12,6 +12,8 @@ usage() {
 version=${1:-${BACKPACK_VERSION:-}}
 channel=${BACKPACK_CHANNEL:-latest}
 case "$channel" in latest|stable) ;; *) echo "BACKPACK_CHANNEL must be latest or stable" >&2; exit 2 ;; esac
+modify_path=${BACKPACK_MODIFY_PATH:-1}
+case "$modify_path" in 0|1) ;; *) echo "BACKPACK_MODIFY_PATH must be 0 or 1" >&2; exit 2 ;; esac
 
 valid_version() {
   printf '%s\n' "$1" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
@@ -122,3 +124,33 @@ install -m 0755 "$temporary_directory/backpack" "$staged_binary"
 mv -f "$staged_binary" "$install_directory/backpack"
 staged_binary=
 echo "Installed verified Backpack Runtime $version to $install_directory"
+
+if [ "$modify_path" = 1 ]; then
+  default_install_directory=$HOME/.local/bin
+  if [ "$install_directory" = "$default_install_directory" ]; then
+    shell_name=${SHELL##*/}
+    case "$shell_name" in
+      zsh) profile=$HOME/.zprofile ;;
+      fish) profile=$HOME/.config/fish/config.fish ;;
+      *) profile=$HOME/.profile ;;
+    esac
+    profile_directory=${profile%/*}
+    [ "$profile_directory" = "$profile" ] || mkdir -p "$profile_directory"
+    marker='# Added by Backpack Runtime installer'
+    if ! { [ -f "$profile" ] && grep -Fq "$marker" "$profile"; }; then
+      if [ "$shell_name" = fish ]; then
+        printf '\n%s\n%s\n' "$marker" 'fish_add_path --global "$HOME/.local/bin"' >> "$profile"
+      else
+        printf '\n%s\n%s\n' "$marker" 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac' >> "$profile"
+      fi
+      echo "Added $install_directory to PATH in $profile"
+    else
+      echo "The Backpack PATH entry is already present in $profile"
+    fi
+    echo "Open a new terminal to use backpack, or add $install_directory to this shell's PATH now."
+  else
+    echo "Custom install directory was not added to a shell profile; add $install_directory to PATH." >&2
+  fi
+else
+  echo "PATH modification was disabled; add $install_directory to PATH before invoking backpack by name."
+fi

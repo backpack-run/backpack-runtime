@@ -20,7 +20,7 @@ func TestInstallersRequireChecksumsAndHTTPS(t *testing.T) {
 		if strings.Contains(text, "StrictHostKeyChecking=no") || strings.Contains(text, "http://") {
 			t.Fatalf("%s contains an insecure transport option", name)
 		}
-		for _, required := range []string{"BACKPACK_VERSION", "BACKPACK_CHANNEL", "latest", "stable", "release.json"} {
+		for _, required := range []string{"BACKPACK_VERSION", "BACKPACK_CHANNEL", "BACKPACK_MODIFY_PATH", "latest", "stable", "release.json"} {
 			if !strings.Contains(text, required) {
 				t.Fatalf("%s is missing release selection control %q", name, required)
 			}
@@ -34,7 +34,7 @@ func TestPowerShellInstallerHardening(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, required := range []string{"AllowAutoRedirect = $false", "Refusing non-HTTPS download", "Unsafe or unexpected archive entry", "Release archive is incomplete", "Downloaded binary did not report expected version", "[IO.File]::Replace", "$backupBinary", "@($metadata)[0]", "Refusing to install a draft release"} {
+	for _, required := range []string{"AllowAutoRedirect = $false", "Refusing non-HTTPS download", "Unsafe or unexpected archive entry", "Release archive is incomplete", "Downloaded binary did not report expected version", "[IO.File]::Replace", "$backupBinary", "@($metadata)[0]", "Refusing to install a draft release", "SetEnvironmentVariable('Path'", "$env:Path"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("PowerShell installer is missing %q", required)
 		}
@@ -58,7 +58,7 @@ func TestShellInstallerHardening(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, required := range []string{"umask 077", "--proto-redir '=https'", "tar -tzf", "tar -tvzf", "downloaded binary did not report expected version", "staged_binary=", "metadata_value", "refusing to install a draft release"} {
+	for _, required := range []string{"umask 077", "--proto-redir '=https'", "tar -tzf", "tar -tvzf", "downloaded binary did not report expected version", "staged_binary=", "metadata_value", "refusing to install a draft release", ".zprofile", ".profile", "config.fish", "fish_add_path"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("shell installer is missing %q", required)
 		}

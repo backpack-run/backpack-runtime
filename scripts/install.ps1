@@ -2,7 +2,8 @@
 param(
     [string]$Version,
     [string]$Channel,
-    [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'Programs\Backpack\bin')
+    [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'Programs\Backpack\bin'),
+    [switch]$NoModifyPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,8 +18,47 @@ if (-not $Version) { $Version = $env:BACKPACK_VERSION }
 if (-not $Channel) { $Channel = if ($env:BACKPACK_CHANNEL) { $env:BACKPACK_CHANNEL } else { 'latest' } }
 if ($Channel -notin @('latest', 'stable')) { throw 'Channel must be latest or stable.' }
 if (-not $InstallDirectory) { throw 'InstallDirectory must not be empty.' }
+if ($env:BACKPACK_MODIFY_PATH -and $env:BACKPACK_MODIFY_PATH -notin @('0', '1')) { throw 'BACKPACK_MODIFY_PATH must be 0 or 1.' }
+$modifyPath = -not $NoModifyPath -and $env:BACKPACK_MODIFY_PATH -ne '0'
 $versionPattern = '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
 if ($Version -and $Version -notmatch $versionPattern) { throw "Invalid Backpack version: $Version" }
+
+function ConvertTo-NormalizedPathEntry {
+    param([Parameter(Mandatory = $true)][string]$PathEntry)
+    $expanded = [Environment]::ExpandEnvironmentVariables($PathEntry.Trim().Trim('"'))
+    if (-not $expanded) { return $null }
+    try { $expanded = [IO.Path]::GetFullPath($expanded) } catch { }
+    $trimmed = $expanded.TrimEnd([char[]]@(92, 47))
+    if ($trimmed -match '^[A-Za-z]:$') { return "$trimmed\" }
+    return $trimmed
+}
+
+function Test-PathContainsDirectory {
+    param([string]$PathValue, [Parameter(Mandatory = $true)][string]$Directory)
+    $target = ConvertTo-NormalizedPathEntry -PathEntry $Directory
+    foreach ($entry in @($PathValue -split ';')) {
+        if (-not $entry) { continue }
+        $candidate = ConvertTo-NormalizedPathEntry -PathEntry $entry
+        if ([string]::Equals($candidate, $target, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Add-BackpackInstallDirectoryToPath {
+    param([Parameter(Mandatory = $true)][string]$Directory)
+    $fullDirectory = [IO.Path]::GetFullPath($Directory)
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $userPathChanged = $false
+    if (-not (Test-PathContainsDirectory -PathValue $userPath -Directory $fullDirectory)) {
+        $updatedUserPath = if ($userPath) { "$($userPath.TrimEnd(';'));$fullDirectory" } else { $fullDirectory }
+        [Environment]::SetEnvironmentVariable('Path', $updatedUserPath, 'User')
+        $userPathChanged = $true
+    }
+    if (-not (Test-PathContainsDirectory -PathValue $env:Path -Directory $fullDirectory)) {
+        $env:Path = if ($env:Path) { "$fullDirectory;$env:Path" } else { $fullDirectory }
+    }
+    return $userPathChanged
+}
 
 function Save-HttpsFile {
     param([Parameter(Mandatory = $true)][Uri]$Uri, [Parameter(Mandatory = $true)][string]$Destination)
@@ -123,7 +163,13 @@ try {
     }
     $stagedBinary = $null
     Write-Host "Installed verified Backpack Runtime $Version to $InstallDirectory"
-    Write-Host 'Add that directory to your user PATH if it is not already present.'
+    if ($modifyPath) {
+        $pathChanged = Add-BackpackInstallDirectoryToPath -Directory $InstallDirectory
+        if ($pathChanged) { Write-Host "Added $InstallDirectory to the user PATH and current PowerShell process." }
+        else { Write-Host "The install directory is already on the user PATH; the current PowerShell process is ready." }
+    } else {
+        Write-Host 'PATH modification was disabled. Add the install directory to PATH before invoking backpack by name.'
+    }
 }
 finally {
     if ($stagedBinary -and (Test-Path -LiteralPath $stagedBinary)) { Remove-Item -LiteralPath $stagedBinary -Force }
