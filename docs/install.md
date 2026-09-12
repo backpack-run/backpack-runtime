@@ -4,7 +4,7 @@ Official release archives contain one `backpack` executable. Go, llama.cpp, whis
 
 ## Installer behavior
 
-Download and review the installer before running it. Do not pipe it directly into a shell.
+The short commands below run the reviewed installer served by `backpack.run`. For a security-sensitive environment, use the inspect-first commands in each platform section instead: archive checksum verification protects the downloaded Backpack binary, while executing the installer itself still trusts the HTTPS endpoint.
 
 The default channel is `latest`: the most recently published, non-draft GitHub Release, including a prerelease. The installer prints a warning when it selects a prerelease. Use `stable` to require the newest non-prerelease, or specify an exact `vVERSION` for a reproducible install. An exact command-line parameter takes precedence over `BACKPACK_VERSION`.
 
@@ -13,14 +13,15 @@ The default channel is `latest`: the most recently published, non-draft GitHub R
 The script supports Windows PowerShell 5.1 and PowerShell 7. It installs to `%LOCALAPPDATA%\Programs\Backpack\bin` unless `-InstallDirectory` is provided.
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/backpack-run/backpack-runtime/main/scripts/install.ps1 -OutFile install.ps1
-Get-Content .\install.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+irm https://backpack.run/install.ps1 | iex
 ```
 
-Select the stable channel or an exact release:
+Inspect first or pass an explicit channel/version:
 
 ```powershell
+Invoke-WebRequest https://backpack.run/install.ps1 -OutFile install.ps1
+Get-Content .\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Channel stable
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.1.0-alpha.1
 $env:BACKPACK_VERSION = 'v0.1.0-alpha.1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
@@ -31,15 +32,16 @@ $env:BACKPACK_VERSION = 'v0.1.0-alpha.1'; powershell.exe -NoProfile -ExecutionPo
 The POSIX script installs to `~/.local/bin` unless a second positional argument is provided.
 
 ```sh
-curl --fail --proto '=https' --proto-redir '=https' --tlsv1.2 \
-  -o install.sh https://raw.githubusercontent.com/backpack-run/backpack-runtime/main/scripts/install.sh
-less install.sh
-sh install.sh
+curl -fsSL https://backpack.run/install.sh | sh
 ```
 
-Select the stable channel or an exact release:
+Inspect first or select an explicit channel/version:
 
 ```sh
+curl --fail --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  -o install.sh https://backpack.run/install.sh
+less install.sh
+sh install.sh
 BACKPACK_CHANNEL=stable sh install.sh
 sh install.sh v0.1.0-alpha.1
 BACKPACK_VERSION=v0.1.0-alpha.1 sh install.sh
@@ -72,7 +74,7 @@ See [Uninstall](uninstall.md) to remove the executable or Backpack-managed data.
 
 ## `backpack.run` hosting contract
 
-The intended public endpoints are `https://backpack.run/install.sh` and `https://backpack.run/install.ps1`. Until those endpoints are deployed and independently reviewed, use scripts fetched from this repository and do not publish pipe-to-shell instructions.
+The public endpoints `https://backpack.run/install.sh` and `https://backpack.run/install.ps1` serve reviewed static copies of this repository's installer scripts. The deployment is sourced from [`amirthakatesh/backpack-web`](https://github.com/amirthakatesh/backpack-web) and uses a short cache lifetime so fixes can be rolled out without changing the URLs.
 
 Static hosting must meet this contract:
 
@@ -84,4 +86,4 @@ Static hosting must meet this contract:
 - keep binary and checksum downloads on immutable GitHub Release URLs unless an equivalently controlled, immutable mirror is introduced; and
 - roll back by restoring a previously reviewed script, never by changing a release asset in place.
 
-The website repository and deployment are deliberately outside this runtime repository.
+The website repository and deployment remain deliberately outside this runtime repository. A runtime source push does not publish a new installable binary: releases remain immutable and are selected through the GitHub Releases API.

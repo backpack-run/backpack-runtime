@@ -10,22 +10,19 @@ It is **not** a new inference engine. It orchestrates engines such as llama.cpp,
 
 ## Install
 
-Install `v0.1.0-alpha.1` from its immutable tag by downloading the installer, inspecting it, then running it with the explicit version:
+Windows x64:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/backpack-run/backpack-runtime/v0.1.0-alpha.1/scripts/install.ps1 -OutFile install.ps1
-Get-Content .\install.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.1.0-alpha.1
+irm https://backpack.run/install.ps1 | iex
 ```
 
 Linux x64 and macOS arm64 preview:
 
 ```sh
-curl --fail --proto '=https' --proto-redir '=https' --tlsv1.2 -o install.sh https://raw.githubusercontent.com/backpack-run/backpack-runtime/v0.1.0-alpha.1/scripts/install.sh
-sh install.sh v0.1.0-alpha.1
+curl -fsSL https://backpack.run/install.sh | sh
 ```
 
-No pipe-to-shell installation is recommended. The installers verify the release archive against the matching GitHub Release checksum before replacing a user-local binary. See [installation details](docs/install.md).
+The installer selects the newest published release, warns before installing a prerelease, and verifies the archive against the matching GitHub Release checksum before replacing a user-local binary. For an inspect-first or version-pinned installation, see [installation details](docs/install.md).
 
 Updates are explicit and channel-aware; Backpack never updates in the background:
 

@@ -40,4 +40,4 @@ Backpack's separately managed model and runtime catalogs retain their own pinned
 
 Release assets are immutable. If an archive or installer is wrong, publish a new semantic prerelease or patch release; never replace an asset under an existing tag. Alpha and beta tags must remain GitHub prereleases. A stable release may be selected only through the stable channel and must have no prerelease suffix.
 
-The public `backpack.run` installer endpoints, once deployed, must serve reviewed static scripts traceable to this repository. See the hosting contract in [Install](install.md).
+The public `backpack.run` installer endpoints serve reviewed static scripts traceable to this repository through the separate website deployment. See the hosting contract in [Install](install.md).

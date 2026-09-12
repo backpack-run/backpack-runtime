@@ -27,4 +27,4 @@
 - [x] Add GitHub release attestations, hardened channel-aware installers, uninstall guidance, and a static `backpack.run` hosting contract.
 - [x] Add opt-in real macOS, Codex/model, and SSH release-qualification workflows.
 - [ ] Qualify at least one real Backpack coding model end-to-end with Codex and Claude Code; Claude executable and suitable model hardware are currently unavailable locally.
-- [ ] Deploy and independently review `backpack.run/install.sh` and `backpack.run/install.ps1`; both endpoints currently return 404.
+- [x] Deploy reviewed `backpack.run/install.sh` and `backpack.run/install.ps1` endpoints, verify their bytes against this repository, and publish the short installation commands.
