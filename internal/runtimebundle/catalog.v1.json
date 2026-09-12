@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026-09-05.1",
+  "catalog_version": "2026-09-12.1",
   "runtimes": [{
     "engine": "llama.cpp",
     "version": "b10618",
-    "compatible_revisions": ["de699957b92f490efebad149665b0dccf127eaff"],
+    "compatible_revisions": ["de699957b92f490efebad149665b0dccf127eaff", "bdf3955159d7184f44b76091973eeff532890a35"],
     "source": {
       "project": "llama.cpp",
       "repository": "https://github.com/ggml-org/llama.cpp",

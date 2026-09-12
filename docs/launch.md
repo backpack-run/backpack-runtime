@@ -10,7 +10,7 @@ backpack launch claude --model qwen3-coder-next
 backpack launch opencode --model qwen3-coder-next
 ```
 
-The launch feature is experimental. The compatibility protocols and the installed Codex executable have passed isolated protocol/tool-loop tests, but no Backpack coding model has yet completed the full real-model agent qualification. Claude Code and OpenCode were not installed on the qualification host.
+The launch feature is experimental. The compatibility protocols and the installed Codex executable have passed isolated protocol/tool-loop tests. Qwen3-Coder 30B A3B has also passed real llama.cpp inference and a Backpack API tool-result continuation. A combined real-model Codex run loaded at 32K context, connected to Codex 0.154, and requested shell/edit tools, but this nested qualification environment enforced `read-only` and rejected execution. No security control was bypassed, so the final external-agent file/edit gate remains pending. Claude Code and OpenCode were not installed on the qualification host.
 
 Only catalog models with an explicit `code` capability are selectable. A `tool-calling` capability is reported separately and is required before a model can be called agent-qualified. With no `--model`, an interactive terminal gets a selector; scripts must specify the model.
 

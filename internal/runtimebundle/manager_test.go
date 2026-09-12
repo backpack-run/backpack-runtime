@@ -145,6 +145,22 @@ func TestManagedLlamaBundleDoesNotClaimGLMDevelopmentRevision(t *testing.T) {
 	}
 }
 
+func TestManagedLlamaBundleClaimsExecutionQualifiedQwenRevision(t *testing.T) {
+	c, err := LoadCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Catalog: c}
+	requirement := models.RuntimeRequirement{Engine: "llama.cpp", Version: "bdf3955159d7184f44b76091973eeff532890a35"}
+	_, variant, err := m.Resolve(requirement, compute.Hardware{OS: "windows", Architecture: "amd64", Backends: []string{"cpu"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if variant.ID != "windows-amd64-cpu" {
+		t.Fatalf("selected variant %q", variant.ID)
+	}
+}
+
 func TestEnsureIsAtomicConcurrentAndCached(t *testing.T) {
 	data := archive(t, "bin/llama-server.exe", "binary")
 	fetch := &memoryFetcher{data: data}

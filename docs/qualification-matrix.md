@@ -26,7 +26,7 @@ Windows is the supported alpha platform. Linux remains an experimental preview d
 |---|---|---|
 | OpenAI Responses text/tool protocol | installed Codex CLI plus deterministic fake inference backend | passed |
 | Codex shell-tool round trip | real Codex binary executed a shell tool and continued from its output | protocol-qualified |
-| Codex with a real Backpack coding model | requires compatible model/runtime and practical hardware | unqualified |
+| Codex with a real Backpack coding model | Qwen3-Coder 30B A3B loaded at 32K context, connected to installed Codex 0.154, and emitted shell/edit tool calls; the nested CLI inherited the qualification host's enforced read-only policy, so execution and file modification were rejected | unqualified (host policy blocked the final edit gate) |
 | Claude Messages text/tool protocol | deterministic conformance tests | protocol-qualified |
 | Claude Code real binary | executable unavailable on qualification host | unqualified |
 | OpenCode provider/config isolation | deterministic invocation tests | implementation-qualified |
@@ -41,7 +41,7 @@ Windows is the supported alpha platform. Linux remains an experimental preview d
 | Single GGUF | checksum/install/session coverage | multiple real Windows models; SmolLM2 on Linux | supported where listed |
 | Split GGUF | complete-shard and missing-shard tests | none on this host | experimental |
 | Projector/vision | typed auxiliary artifact and `--mmproj` coverage | none on this host | experimental |
-| Large/MoE GGUF | manifest selection and fit refusal | none on suitable hardware | preflight only |
+| Large/MoE GGUF | manifest selection and fit refusal | Qwen3-Coder 30B A3B pull, b10618 CPU inference, two-stage tool continuation, and streaming tool arguments passed on Windows | supported for the qualified package; other large models remain preflight only |
 | Z-Image | immutable component inventory and job/artifact API | no complete package or GPU generation | package change required |
 | Wan video | immutable component inventory and job/artifact API | no complete package or GPU generation | package change required |
 

@@ -73,7 +73,7 @@ backpack launch opencode --model qwen3-coder-next
 - **Windows x64:** supported and execution-validated for this alpha.
 - **Linux x64:** experimental preview binary; the release archive's CPU GGUF path has passed clean-home SmolLM2 inference and process-lifecycle qualification.
 - **macOS arm64:** experimental preview binary; cross-build/archive checks pass, but real inference has not been validated.
-- **Validated models on Windows:** SmolLM2 135M/1.7B and Qwen2.5 0.5B chat through managed llama.cpp, Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech.
+- **Validated models on Windows:** SmolLM2 135M/1.7B, Qwen2.5 0.5B, and Qwen3-Coder 30B A3B chat through managed llama.cpp; the Qwen coding model also passed a structured tool-result continuation. Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech are validated as well.
 - **Experimental:** Codex/Claude/OpenCode launch and compatibility APIs, split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
 - **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.
 

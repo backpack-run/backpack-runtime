@@ -17,6 +17,22 @@ func TestBundledCatalogHasTwelvePublishedModels(t *testing.T) {
 	if m.RuntimeEngine != "llama.cpp" {
 		t.Fatalf("unexpected runtime %q", m.RuntimeEngine)
 	}
+	qwen, err := c.Resolve("qwen3-coder-30b-a3b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qwen.Status != "supported" || !containsCapability(qwen.Capabilities, "tool-calling") {
+		t.Fatalf("Qwen qualification metadata = %#v", qwen)
+	}
+}
+
+func containsCapability(capabilities []string, expected string) bool {
+	for _, capability := range capabilities {
+		if capability == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCatalogRejectsDuplicateAliasesAndRepositories(t *testing.T) {
