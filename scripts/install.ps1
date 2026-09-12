@@ -1,8 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidatePattern('^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$')]
     [string]$Version,
-    [ValidateSet('latest', 'stable')]
     [string]$Channel,
     [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'Programs\Backpack\bin')
 )

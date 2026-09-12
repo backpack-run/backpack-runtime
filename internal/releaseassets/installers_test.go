@@ -45,6 +45,11 @@ func TestPowerShellInstallerHardening(t *testing.T) {
 	if strings.Contains(text, "[IO.File]::Replace($stagedBinary, $destination, $null)") {
 		t.Fatal("PowerShell 5.1 rejects a null File.Replace backup path")
 	}
+	for _, incompatible := range []string{"[ValidatePattern(", "[ValidateSet("} {
+		if strings.Contains(text, incompatible) {
+			t.Fatalf("PowerShell installer uses %s on an optional parameter; omitted values must remain valid for irm | iex", incompatible)
+		}
+	}
 }
 
 func TestShellInstallerHardening(t *testing.T) {
