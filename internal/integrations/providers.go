@@ -13,6 +13,12 @@ import (
 
 const RecommendedAgentContext = 64 * 1024
 
+// codexAgentInstructions supplies the behavioral contract Codex expects from a
+// model catalog entry. An empty base_instructions value replaces Codex's
+// built-in instructions with nothing, which makes otherwise tool-capable models
+// prone to describing an action instead of invoking the supplied tool.
+const codexAgentInstructions = `You are a coding agent operating in the user's working directory. Use the provided tools to inspect files, run commands, and make changes whenever the request depends on local state. Do not merely describe a command or promise to run it: call the appropriate tool and use its result. Continue until the request is complete or you encounter a concrete blocker. Respect the configured sandbox and approval policy, and never claim an action succeeded unless its tool result confirms success.`
+
 func Builtins() (*Registry, error) {
 	return NewRegistry(
 		Descriptor{ID: "claude", DisplayName: "Claude Code", ExecutableCandidates: []string{"claude"}, RequiredModelCapability: "code", RecommendedContextTokens: RecommendedAgentContext},
@@ -260,7 +266,7 @@ func WriteCodexModelCatalog(options CodexCatalogOptions) error {
 		"slug": options.Model.ID, "display_name": options.Model.DisplayName, "context_window": options.ContextTokens,
 		"shell_type": "default", "visibility": "list", "supported_in_api": true, "priority": 0,
 		"truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "input_modalities": modalities,
-		"base_instructions": "", "support_verbosity": false, "supports_parallel_tool_calls": false,
+		"base_instructions": codexAgentInstructions, "support_verbosity": false, "supports_parallel_tool_calls": false,
 		"supports_reasoning_summaries": false, "supported_reasoning_levels": []any{}, "experimental_supported_tools": []any{},
 	}}}
 	data, err := json.MarshalIndent(payload, "", "  ")

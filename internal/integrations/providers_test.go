@@ -85,6 +85,7 @@ func TestWriteCodexModelCatalogUsesTrustedMetadata(t *testing.T) {
 			ContextWindow     int      `json:"context_window"`
 			InputModalities   []string `json:"input_modalities"`
 			ParallelToolCalls bool     `json:"supports_parallel_tool_calls"`
+			BaseInstructions  string   `json:"base_instructions"`
 		} `json:"models"`
 	}
 	data := mustRead(t, path)
@@ -93,6 +94,9 @@ func TestWriteCodexModelCatalogUsesTrustedMetadata(t *testing.T) {
 	}
 	if len(payload.Models) != 1 || payload.Models[0].Slug != "coder" || payload.Models[0].ContextWindow != 131072 || len(payload.Models[0].InputModalities) != 2 || payload.Models[0].ParallelToolCalls {
 		t.Fatalf("unexpected catalog %s", data)
+	}
+	if !strings.Contains(payload.Models[0].BaseInstructions, "call the appropriate tool") || !strings.Contains(payload.Models[0].BaseInstructions, "never claim an action succeeded") {
+		t.Fatalf("catalog does not provide an agent tool-use contract: %s", data)
 	}
 }
 
