@@ -10,6 +10,13 @@ backpack launch claude --model qwen3-coder-next
 backpack launch opencode --model qwen3-coder-next
 ```
 
+Private-alpha Cloud models are selected with their live `:cloud` ID after `backpack login`:
+
+```console
+backpack cloud models
+backpack launch codex --model qwen3-coder-30b-a3b-instruct:cloud
+```
+
 The launch feature is experimental. The compatibility protocols and the installed Codex executable have passed isolated protocol/tool-loop tests. Qwen3-Coder 30B A3B has also passed real llama.cpp inference and a Backpack API tool-result continuation. A combined real-model Codex run loaded at 32K context, connected to Codex 0.154, and requested shell/edit tools, but this nested qualification environment enforced `read-only` and rejected execution. No security control was bypassed, so the final external-agent file/edit gate remains pending. Claude Code and OpenCode were not installed on the qualification host.
 
 Only catalog models with an explicit `code` capability are selectable. A `tool-calling` capability is reported separately and is required before a model can be called agent-qualified. With no `--model`, an interactive terminal gets a selector; scripts must specify the model.
@@ -28,6 +35,6 @@ Backpack does not install external agents automatically. Missing tools produce o
 
 Backpack configures provider routing, model selection, and an isolated configuration directory. It does not weaken Codex/OpenCode sandbox and approval settings or Claude Code permissions, and never adds permission-bypass flags. Tool execution, workspace access, and user approvals remain owned by the launched agent.
 
-Provider tokens used for loopback compatibility are placeholders scoped to the child process and are redacted from diagnostics. The Runtime API remains loopback-only because it has no remote-client authentication.
+Provider tokens are random per-daemon values scoped to the child process and redacted from diagnostics. Cloud credentials remain in the runtime process and are never passed to the third-party agent. Cloud proxy routes validate the per-daemon bearer token even on loopback. The Runtime API remains loopback-only and is not a remotely authenticated service.
 
 See the integration-specific documents and protocol subset documents for limitations.

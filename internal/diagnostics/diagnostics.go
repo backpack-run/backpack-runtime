@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/daemon"
@@ -47,6 +48,11 @@ type UpdateSummary struct {
 	Target string `json:"target,omitempty"`
 	Reason string `json:"reason,omitempty"`
 }
+type CloudSummary struct {
+	Endpoint         string `json:"endpoint"`
+	Authenticated    bool   `json:"authenticated"`
+	CredentialSource string `json:"credential_source"`
+}
 type Report struct {
 	Version                string               `json:"version"`
 	Platform               string               `json:"platform"`
@@ -61,10 +67,11 @@ type Report struct {
 	Integrations           []IntegrationSummary `json:"coding_agent_integrations"`
 	ConfigurationOverrides []string             `json:"configuration_overrides"`
 	Update                 UpdateSummary        `json:"update"`
+	Cloud                  CloudSummary         `json:"cloud"`
 	KnownProblems          []string             `json:"known_problems"`
 }
 
-func Collect(ctx context.Context, version string, paths config.Paths, local compute.Local, modelManager *models.Manager, runtimeManager *runtimebundle.Manager, targets compute.TargetStore) Report {
+func Collect(ctx context.Context, version string, paths config.Paths, local compute.Local, modelManager *models.Manager, runtimeManager *runtimebundle.Manager, targets compute.TargetStore, cloudClient *cloud.Client) Report {
 	home, _ := os.UserHomeDir()
 	report := Report{Version: version, Platform: runtime.GOOS + "/" + runtime.GOARCH, BackpackHome: SanitizePath(paths.Root, home), ComputeTargets: []ComputeSummary{{Name: "local", Kind: "local"}}, PythonRuntimes: []string{}, Integrations: []IntegrationSummary{}, ConfigurationOverrides: []string{}, KnownProblems: []string{}}
 	if executable, err := os.Executable(); err == nil {
@@ -88,9 +95,18 @@ func Collect(ctx context.Context, version string, paths config.Paths, local comp
 		}
 	}
 	report.PythonRuntimes = pythonRuntimeInventory(paths)
-	for _, name := range []string{"BACKPACK_LLAMA_SERVER", "BACKPACK_HOME"} {
+	for _, name := range []string{"BACKPACK_LLAMA_SERVER", "BACKPACK_HOME", "BACKPACK_CLOUD_URL", "BACKPACK_API_KEY"} {
 		if os.Getenv(name) != "" {
 			report.ConfigurationOverrides = append(report.ConfigurationOverrides, name)
+		}
+	}
+	if cloudClient != nil {
+		report.Cloud.Endpoint = cloudClient.BaseURL
+		source, _, cloudErr := cloudClient.AuthStatus()
+		report.Cloud.Authenticated = cloudErr == nil && source != "none"
+		report.Cloud.CredentialSource = source
+		if cloudErr != nil {
+			report.KnownProblems = append(report.KnownProblems, "Backpack Cloud credential: "+cloudErr.Error())
 		}
 	}
 	if hardware, err := local.Inspect(ctx); err == nil {

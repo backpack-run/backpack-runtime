@@ -9,10 +9,11 @@ Backpack treats model repositories and manifests as semi-trusted data, not execu
 - Archive extraction rejects traversal, absolute paths, links, devices, excessive entries, and unsupported formats, then atomically commits the verified directory.
 - Python versions, dependency versions, indexes, and artifact hashes are catalog-owned. Environment reuse requires schema, lock, source, platform, worker, asset, and resolved-distribution metadata to match.
 - SSH uses strict `known_hosts`, never stores private-key contents, binds remote inference to loopback, verifies remote content, and atomically finalizes transfers.
-- The HTTP service refuses non-loopback binding while authentication is absent. Image content accepts inline `data:image/...` only; network and filesystem URLs are rejected.
+- The HTTP service refuses non-loopback binding. Cloud proxy routes additionally require a cryptographically random per-daemon bearer token; incoming local authorization is replaced with the Cloud credential rather than forwarded. Image content accepts inline `data:image/...` only; network and filesystem URLs are rejected.
 - Uploaded audio and worker IPC use Backpack-controlled private paths. Generated artifact lookup is confined to the owning job directory.
 - Diagnostics omit credentials, SSH connection details, prompts, conversations, and the user's home path prefix.
-- Agent launchers use literal argv without a shell, child-only placeholder credentials, and Backpack-owned isolated config directories. Managed provider/model arguments cannot be replaced through passthrough flags. Backpack does not disable an agent's sandbox, approvals, or permission UI. OpenCode launches additionally disable automatic provider-model fetching, updates, default plugins, Claude configuration import, and automatic sharing in the child process.
+- Agent launchers use literal argv without a shell, child-only per-daemon credentials, and Backpack-owned isolated config directories. A Cloud API key, device private key, or short-lived Cloud access token is never passed to an agent. Managed provider/model arguments cannot be replaced through passthrough flags. Backpack does not disable an agent's sandbox, approvals, or permission UI. OpenCode launches additionally disable automatic provider-model fetching, updates, default plugins, Claude configuration import, and automatic sharing in the child process.
+- Interactive Cloud login generates an Ed25519 key locally and sends only its public key. Windows stores the private key with user-scoped DPAPI; Unix-like platforms require private `0600` files. Device access tokens are short-lived and held only in memory. `BACKPACK_CLOUD_URL` requires HTTPS except for loopback testing.
 - Release installers and `backpack update` select only recognized platform archives over HTTPS, verify SHA-256 before restricted extraction, validate the embedded version, and stage replacement beside the destination. Tagged archives and checksums receive GitHub artifact attestations; the checksum and archive still share GitHub as a trust domain.
 
 ## Residual risk and release gates
@@ -23,4 +24,4 @@ The current service is single-user and loopback-only. Authentication, multi-user
 
 Third-party agent executables remain independent trusted programs with their own update, telemetry, plugin, and workspace threat models. Backpack does not install them automatically. Initial isolated profiles disable nonessential hosted features, but users must still review the agent's own permissions before allowing file or shell changes.
 
-The stable `backpack.run` installer URLs are not deployed yet. Until their reviewed bytes and hosting headers are verified, the project does not advertise pipe-to-shell installation.
+The reviewed `backpack.run` installer endpoints are deployed with checksum verification and user-local installation. Their bytes and hosting behavior remain part of every release gate.

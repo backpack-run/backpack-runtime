@@ -122,7 +122,7 @@ func (Local) Execute(ctx context.Context, s Command) (Process, error) {
 	// that created the session. The context is used by Prepare/Stop boundaries.
 	_ = ctx
 	cmd := exec.Command(s.Executable, s.Args...)
-	cmd.Env = append(os.Environ(), s.Env...)
+	cmd.Env = append(sanitizedChildEnvironment(os.Environ()), s.Env...)
 	cmd.Dir = s.Dir
 	cmd.Stdin = nil
 	cmd.Stdout = s.Stdout
@@ -138,6 +138,18 @@ func (Local) Execute(ctx context.Context, s Command) (Process, error) {
 	p := &localProcess{cmd: cmd, done: make(chan struct{}), cleanup: cleanup}
 	go func() { p.err = cmd.Wait(); p.cleanup(); close(p.done) }()
 	return p, nil
+}
+
+func sanitizedChildEnvironment(environment []string) []string {
+	result := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if found && strings.EqualFold(name, "BACKPACK_API_KEY") {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
 }
 
 type localProcess struct {

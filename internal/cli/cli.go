@@ -11,6 +11,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/adapters/whispercpp"
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/catalogverify"
+	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/daemon"
@@ -48,6 +49,7 @@ type app struct {
 	kokoro   *pythonworker.Adapter
 	runtimes *runtimebundle.Manager
 	registry *backruntime.Registry
+	cloud    *cloud.Client
 }
 
 func Run(ctx context.Context, args []string, out, errOut io.Writer, version string) error {
@@ -64,12 +66,16 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 	if err != nil {
 		return err
 	}
+	cloudClient, err := cloud.New(paths)
+	if err != nil {
+		return err
+	}
 	llama := &llamacpp.Adapter{Paths: paths, Runtimes: runtimes}
 	whisper := &whispercpp.Adapter{Paths: paths, Runtimes: runtimes}
 	pythonEnvironments := &pythonruntime.Manager{Paths: paths, Runtimes: runtimes}
 	qwenASR := &pythonworker.Adapter{Engine: "qwen-asr", Provides: []string{"transcription"}, Paths: paths, Environments: pythonEnvironments}
 	kokoro := &pythonworker.Adapter{Engine: "kokoro", Provides: []string{"speech"}, Paths: paths, Environments: pythonEnvironments}
-	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, whisper: whisper, qwenASR: qwenASR, kokoro: kokoro, runtimes: runtimes}
+	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, whisper: whisper, qwenASR: qwenASR, kokoro: kokoro, runtimes: runtimes, cloud: cloudClient}
 	a.registry = backruntime.NewRegistry(llama, whisper, qwenASR, kokoro)
 	if len(args) == 0 {
 		return a.landing(ctx)
@@ -101,12 +107,18 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.run(ctx, args[1:])
 	case "launch":
 		return a.launchCommand(ctx, args[1:])
+	case "login":
+		return a.login(ctx, args[1:])
+	case "logout":
+		return a.logout(args[1:])
+	case "cloud":
+		return a.cloudCommand(ctx, args[1:])
 	case "transcribe":
 		return a.transcribe(ctx, args[1:])
 	case "speak":
 		return a.speak(ctx, args[1:])
 	case "serve":
-		return a.serve(ctx, args[1:])
+		return a.serve(ctx, args[1:], false)
 	case "ps":
 		return a.ps(ctx)
 	case "stop":
@@ -126,7 +138,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 	case "video":
 		return a.mediaJob(ctx, "video-generation", args[1:])
 	case "_daemon":
-		return a.serve(ctx, args[1:])
+		return a.serve(ctx, args[1:], true)
 	default:
 		return fmt.Errorf("unknown command %q; run `backpack help`", args[0])
 	}
@@ -143,6 +155,9 @@ func (a *app) commandHelp(command string) error {
 		"hardware":   "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
 		"run":        "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
 		"launch":     "Usage: backpack launch <list|doctor|claude|codex|opencode> [--model model] [--compute target] [--context tokens] [--keep-alive] [--force] [-- tool-args]\n\nExperimental: launches the real third-party agent with isolated Backpack provider routing.\n",
+		"login":      "Usage: backpack login [--name device-name] [--no-browser]\n\nAuthorize this device for Backpack Cloud without storing a password or long-lived access token.\n",
+		"logout":     "Usage: backpack logout\n\nRemove the local Backpack Cloud device credential.\n",
+		"cloud":      "Usage: backpack cloud <status|models> [--json]\n\nInspect Backpack Cloud authentication and live model availability.\n",
 		"transcribe": "Usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target] [--force]\n",
 		"speak":      "Usage: backpack speak <text> --output file.wav [--model model] [--voice voice] [--speed n] [--compute target] [--force]\n",
 		"serve":      "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
@@ -179,6 +194,9 @@ Usage: backpack <command>
   hardware                inspect local compute
   run <model> [flags]     create an API-owned session and chat
   launch <integration>    launch an external coding agent through Backpack (experimental)
+  login                   authorize this device for Backpack Cloud
+  logout                  remove the local Backpack Cloud credential
+  cloud <command>         inspect Cloud authentication and live models
   transcribe <audio>      transcribe audio through the runtime API
   speak <text>            synthesize speech through the runtime API
   serve [--address addr]  start the loopback runtime API
@@ -401,7 +419,7 @@ func (a *app) doctor(ctx context.Context, args []string) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("usage: backpack doctor [--json]")
 	}
-	report := diagnostics.Collect(ctx, a.version, a.paths, a.local, a.models, a.runtimes, compute.NewTargetStore(a.paths))
+	report := diagnostics.Collect(ctx, a.version, a.paths, a.local, a.models, a.runtimes, compute.NewTargetStore(a.paths), a.cloud)
 	report.Update = a.updateDiagnostic(ctx)
 	if *asJSON {
 		data, _ := json.MarshalIndent(report, "", "  ")
@@ -413,6 +431,7 @@ func (a *app) doctor(ctx context.Context, args []string) error {
 		fmt.Fprintf(a.out, " (%s)", report.Update.Target)
 	}
 	fmt.Fprintf(a.out, "\nHome: %s\nDaemon: %v\nModels: %d installed, %d verified, %d corrupt\nRuntimes: %d installed, %d verified, %d corrupt\nPython runtimes: %d\nCompute targets: %d\n", report.BackpackHome, report.Daemon.Running, report.Models.Installed, report.Models.Verified, report.Models.Corrupt, report.Runtimes.Installed, report.Runtimes.Verified, report.Runtimes.Corrupt, len(report.PythonRuntimes), len(report.ComputeTargets))
+	fmt.Fprintf(a.out, "Cloud: %v (%s)\n", report.Cloud.Authenticated, report.Cloud.CredentialSource)
 	for _, integration := range report.Integrations {
 		status := "not found"
 		if integration.Installed {
@@ -938,7 +957,7 @@ func (a *app) mediaJob(ctx context.Context, capability string, args []string) er
 	fmt.Fprintln(a.out, string(data))
 	return nil
 }
-func (a *app) serve(ctx context.Context, args []string) error {
+func (a *app) serve(ctx context.Context, args []string, internal bool) error {
 	if err := a.paths.Ensure(); err != nil {
 		return err
 	}
@@ -948,11 +967,24 @@ func (a *app) serve(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	apiKey := ""
+	if internal {
+		apiKey = strings.TrimSpace(os.Getenv("BACKPACK_DAEMON_API_KEY"))
+		if !daemon.ValidAPIKey(apiKey) {
+			return fmt.Errorf("internal daemon API key is missing or invalid")
+		}
+	} else {
+		var err error
+		apiKey, err = daemon.NewAPIKey()
+		if err != nil {
+			return err
+		}
+	}
 	broker := events.NewBroker()
 	a.runtimes.Sink = broker.Publish
 	manager := sessions.NewWithEvents(a.catalog, a.models, a.registry, a.paths, broker.Publish)
 	jobManager := jobs.New(a.catalog, a.paths, broker.Publish)
-	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Audio: manager, Speech: manager, Jobs: jobManager, Events: broker, Targets: compute.NewTargetStore(a.paths), Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
+	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Audio: manager, Speech: manager, Jobs: jobManager, Events: broker, Targets: compute.NewTargetStore(a.paths), Cloud: a.cloud, CloudProxyToken: apiKey, Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
 	if existing, err := daemon.Read(a.paths); err == nil && existing.PID != os.Getpid() {
 		check, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 		healthErr := clientapi.New(existing.Endpoint).Health(check)
@@ -961,7 +993,7 @@ func (a *app) serve(ctx context.Context, args []string) error {
 			return fmt.Errorf("Backpack Runtime is already running at %s", existing.Endpoint)
 		}
 	}
-	if err := daemon.Write(a.paths, daemon.State{PID: os.Getpid(), Endpoint: "http://" + *address, StartedAt: time.Now().UTC(), Version: a.version}); err != nil {
+	if err := daemon.Write(a.paths, daemon.State{PID: os.Getpid(), Endpoint: "http://" + *address, StartedAt: time.Now().UTC(), Version: a.version, APIKey: apiKey}); err != nil {
 		return err
 	}
 	defer daemon.ClearIfOwned(a.paths, os.Getpid())

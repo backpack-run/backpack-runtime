@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/inference"
 )
 
@@ -36,6 +37,14 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var envelope struct {
+		Model  string `json:"model"`
+		Stream bool   `json:"stream"`
+	}
+	if json.Unmarshal(body, &envelope) == nil && cloud.IsModel(envelope.Model) {
+		s.proxyCloud(w, r, "/v1/responses", body, envelope.Stream)
 		return
 	}
 	request, err := parseResponsesRequest(body)

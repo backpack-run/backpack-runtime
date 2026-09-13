@@ -64,6 +64,16 @@ backpack launch codex --model qwen3-coder-next
 backpack launch opencode --model qwen3-coder-next
 ```
 
+Backpack Cloud private-alpha models use the same launch path and are discovered live rather than hard-coded:
+
+```console
+backpack login
+backpack cloud models
+backpack launch codex --model qwen3-coder-30b-a3b-instruct:cloud
+```
+
+Use only an ID returned by `backpack cloud models`; `qwen3-coder-next:cloud` is not currently available and is not mapped to a different model. See [Backpack Cloud](docs/cloud.md) for device-key storage, API-key automation, and security boundaries.
+
 ## What works
 
 - **Release channel:** early alpha; APIs and behavior may change.
@@ -71,7 +81,7 @@ backpack launch opencode --model qwen3-coder-next
 - **Linux x64:** experimental preview binary; the release archive's CPU GGUF path has passed clean-home SmolLM2 inference and process-lifecycle qualification.
 - **macOS arm64:** experimental preview binary; cross-build/archive checks pass, but real inference has not been validated.
 - **Validated models on Windows:** SmolLM2 135M/1.7B, Qwen2.5 0.5B, and Qwen3-Coder 30B A3B chat through managed llama.cpp; the Qwen coding model also passed a structured tool-result continuation. Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech are validated as well.
-- **Experimental:** Codex/Claude/OpenCode launch and compatibility APIs, split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
+- **Experimental:** Backpack Cloud private-alpha routing, Codex/Claude/OpenCode launch and compatibility APIs, split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
 - **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.
 
 The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model usage](docs/models.md) and the detailed [compatibility matrix](docs/model-compatibility.md).

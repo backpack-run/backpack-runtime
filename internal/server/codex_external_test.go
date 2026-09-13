@@ -44,7 +44,7 @@ func TestRealCodexResponsesProtocol(t *testing.T) {
 	if err = integrations.WriteCodexModelCatalog(integrations.CodexCatalogOptions{Model: model, ContextTokens: 65536, Path: catalogPath}); err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := integrations.CodexInvocation(integrations.ProviderOptions{Endpoint: backpack.URL, Model: model.ID, ContextTokens: 65536, ConfigDirectory: root, CatalogPath: catalogPath, Executable: codex, Passthrough: []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--sandbox", "read-only", "Reply with the exact token BACKPACK_CODEX_PROTOCOL_OK and do nothing else."}})
+	invocation, err := integrations.CodexInvocation(integrations.ProviderOptions{Endpoint: backpack.URL, Model: model.ID, ContextTokens: 65536, ConfigDirectory: root, CatalogPath: catalogPath, Executable: codex, Passthrough: []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--sandbox", "read-only", "Reply with the exact token BACKPACK_CODEX_PROTOCOL_OK and do nothing else."}, APIKey: "test-daemon-key"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestRealCodexToolRoundTrip(t *testing.T) {
 	if err = integrations.WriteCodexModelCatalog(integrations.CodexCatalogOptions{Model: model, ContextTokens: 65536, Path: catalogPath}); err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := integrations.CodexInvocation(integrations.ProviderOptions{Endpoint: backpack.URL, Model: model.ID, ContextTokens: 65536, ConfigDirectory: root, CatalogPath: catalogPath, Executable: codex, Passthrough: []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--sandbox", "read-only", "Run the requested command and finish."}})
+	invocation, err := integrations.CodexInvocation(integrations.ProviderOptions{Endpoint: backpack.URL, Model: model.ID, ContextTokens: 65536, ConfigDirectory: root, CatalogPath: catalogPath, Executable: codex, Passthrough: []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--sandbox", "read-only", "Run the requested command and finish."}, APIKey: "test-daemon-key"})
 	if err != nil {
 		t.Fatal(err)
 	}

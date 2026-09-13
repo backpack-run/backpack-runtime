@@ -110,10 +110,22 @@ type CreateJobRequest struct {
 	Input      JobInput   `json:"input"`
 	Options    JobOptions `json:"options,omitempty"`
 }
+type CloudModel struct {
+	ID            string         `json:"id"`
+	Object        string         `json:"object"`
+	OwnedBy       string         `json:"owned_by"`
+	DisplayName   string         `json:"display_name"`
+	Capabilities  []string       `json:"capabilities"`
+	ContextWindow int            `json:"context_window"`
+	Pricing       map[string]any `json:"pricing,omitempty"`
+	Qualification map[string]any `json:"qualification,omitempty"`
+	Status        string         `json:"status"`
+}
 
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	APIKey  string
 }
 
 func New(base string) *Client {
@@ -171,11 +183,20 @@ func (c *Client) GetJob(ctx context.Context, id string) (*Job, error) {
 func (c *Client) CancelJob(ctx context.Context, id string) error {
 	return c.json(ctx, http.MethodDelete, "/api/backpack/v1/jobs/"+id, nil, nil)
 }
+func (c *Client) CloudModels(ctx context.Context) ([]CloudModel, error) {
+	var out struct {
+		Object string       `json:"object"`
+		Data   []CloudModel `json:"data"`
+	}
+	err := c.json(ctx, http.MethodGet, "/api/backpack/v1/cloud/models", nil, &out)
+	return out.Data, err
+}
 func (c *Client) Chat(ctx context.Context, model, prompt string, stream bool, onData func(string)) error {
 	payload := map[string]any{"model": model, "messages": []map[string]string{{"role": "user", "content": prompt}}, "stream": stream}
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	c.authorize(req)
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return err
@@ -258,6 +279,7 @@ func (c *Client) Transcribe(ctx context.Context, request TranscriptionRequest) (
 		return nil, err
 	}
 	req.Header.Set("Content-Type", form.FormDataContentType())
+	c.authorize(req)
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
@@ -283,6 +305,7 @@ func (c *Client) Speech(ctx context.Context, request SpeechRequest) ([]byte, err
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.authorize(req)
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
@@ -298,6 +321,7 @@ func (c *Client) Events(ctx context.Context, onEvent func(Event)) error {
 	if err != nil {
 		return err
 	}
+	c.authorize(req)
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return err
@@ -329,6 +353,7 @@ func (c *Client) json(ctx context.Context, method, path string, input, output an
 	}
 	req, _ := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
 	req.Header.Set("Content-Type", "application/json")
+	c.authorize(req)
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return err
@@ -341,6 +366,11 @@ func (c *Client) json(ctx context.Context, method, path string, input, output an
 		return json.NewDecoder(res.Body).Decode(output)
 	}
 	return nil
+}
+func (c *Client) authorize(request *http.Request) {
+	if c.APIKey != "" {
+		request.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 }
 func responseError(res *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))

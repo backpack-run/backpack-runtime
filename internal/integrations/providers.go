@@ -29,6 +29,7 @@ type ProviderOptions struct {
 	Executable      string
 	Passthrough     []string
 	CatalogPath     string
+	APIKey          string
 }
 
 func ClaudeInvocation(options ProviderOptions) (Invocation, error) {
@@ -56,7 +57,7 @@ func ClaudeInvocation(options ProviderOptions) (Invocation, error) {
 		sensitive   bool
 	}{
 		{"ANTHROPIC_BASE_URL", strings.TrimRight(options.Endpoint, "/"), false},
-		{"ANTHROPIC_AUTH_TOKEN", "backpack-local", true},
+		{"ANTHROPIC_AUTH_TOKEN", options.APIKey, true},
 		{"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", "backpack-runtime", false},
 		{"CLAUDE_CONFIG_DIR", options.ConfigDirectory, false},
 		{"ANTHROPIC_MODEL", options.Model, false},
@@ -84,6 +85,9 @@ func ClaudeInvocation(options ProviderOptions) (Invocation, error) {
 		}
 	}
 	if err = add(Unset("ANTHROPIC_API_KEY")); err != nil {
+		return Invocation{}, err
+	}
+	if err = add(Unset("BACKPACK_API_KEY")); err != nil {
 		return Invocation{}, err
 	}
 	if options.ContextTokens > 0 {
@@ -115,6 +119,7 @@ func CodexInvocation(options ProviderOptions) (Invocation, error) {
 		"-c", fmt.Sprintf("model_providers.backpack.name=%q", "Backpack"),
 		"-c", fmt.Sprintf("model_providers.backpack.base_url=%q", baseURL),
 		"-c", `model_providers.backpack.wire_api="responses"`,
+		"-c", `model_providers.backpack.env_key="OPENAI_API_KEY"`,
 		"-c", fmt.Sprintf("model_catalog_json=%q", options.CatalogPath),
 		"-c", `features.apps=false`,
 		"-c", `features.plugins=false`,
@@ -126,9 +131,10 @@ func CodexInvocation(options ProviderOptions) (Invocation, error) {
 	if err != nil {
 		return Invocation{}, err
 	}
-	apiKey, _ := Secret("OPENAI_API_KEY", "backpack-local")
+	apiKey, _ := Secret("OPENAI_API_KEY", options.APIKey)
 	configHome, _ := Set("CODEX_HOME", options.ConfigDirectory)
-	environment, _ := NewEnvironmentOverlay(apiKey, configHome)
+	cloudAPIKey, _ := Unset("BACKPACK_API_KEY")
+	environment, _ := NewEnvironmentOverlay(apiKey, configHome, cloudAPIKey)
 	invocation := Invocation{Executable: options.Executable, ManagedArguments: managed, PassthroughArguments: passthrough, Environment: environment, IsolatedConfigDirectory: options.ConfigDirectory}
 	return invocation, invocation.Validate()
 }
@@ -150,7 +156,7 @@ func OpenCodeInvocation(options ProviderOptions) (Invocation, error) {
 			"name": "Backpack Runtime",
 			"options": map[string]any{
 				"baseURL": strings.TrimRight(options.Endpoint, "/") + "/v1",
-				"apiKey":  "backpack-local",
+				"apiKey":  options.APIKey,
 			},
 			"models": map[string]any{options.Model: map[string]any{
 				"name":  options.Model,
@@ -168,6 +174,8 @@ func OpenCodeInvocation(options ProviderOptions) (Invocation, error) {
 		return Invocation{}, err
 	}
 	values := []Variable{}
+	cloudAPIKey, _ := Unset("BACKPACK_API_KEY")
+	values = append(values, cloudAPIKey)
 	for _, pair := range []struct{ name, value string }{
 		{"OPENCODE_CONFIG_DIR", options.ConfigDirectory},
 		{"OPENCODE_DISABLE_AUTOUPDATE", "true"},
@@ -204,6 +212,9 @@ func validateProviderOptions(options ProviderOptions) error {
 	}
 	if strings.TrimSpace(options.Model) == "" {
 		return fmt.Errorf("integration model is required")
+	}
+	if strings.TrimSpace(options.APIKey) == "" {
+		return fmt.Errorf("Backpack daemon API key is required")
 	}
 	if options.ConfigDirectory == "" || !filepath.IsAbs(options.ConfigDirectory) {
 		return fmt.Errorf("isolated integration config directory must be absolute")

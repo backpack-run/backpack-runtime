@@ -51,3 +51,20 @@ func TestDevelopmentBuildUpdateDiagnosticDoesNotContactNetwork(t *testing.T) {
 		t.Fatalf("unexpected update diagnostic: %#v", status)
 	}
 }
+
+func TestCloudStatusAndDoctorNeverPrintAPIKey(t *testing.T) {
+	t.Setenv("BACKPACK_HOME", t.TempDir())
+	t.Setenv("BACKPACK_API_KEY", "test-secret-must-not-appear")
+	for _, arguments := range [][]string{{"cloud", "status", "--json"}, {"doctor", "--json"}} {
+		var output bytes.Buffer
+		if err := Run(context.Background(), arguments, &output, &output, "dev"); err != nil {
+			t.Fatalf("%v: %v", arguments, err)
+		}
+		if strings.Contains(output.String(), "test-secret-must-not-appear") {
+			t.Fatalf("%v leaked the Cloud API key: %s", arguments, output.String())
+		}
+		if !strings.Contains(output.String(), "api-key-environment") && arguments[0] == "cloud" {
+			t.Fatalf("cloud status omitted the credential source: %s", output.String())
+		}
+	}
+}

@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
+	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/events"
 	"github.com/backpack-run/backpack-runtime/internal/jobs"
@@ -47,17 +50,19 @@ type JobService interface {
 }
 
 type Server struct {
-	Version  string
-	Catalog  catalog.Catalog
-	Models   *models.Manager
-	Sessions SessionService
-	Audio    TranscriptionService
-	Speech   SpeechService
-	Jobs     JobService
-	Hardware func() (compute.Hardware, error)
-	Client   *http.Client
-	Targets  compute.TargetStore
-	Events   *events.Broker
+	Version         string
+	Catalog         catalog.Catalog
+	Models          *models.Manager
+	Sessions        SessionService
+	Audio           TranscriptionService
+	Speech          SpeechService
+	Jobs            JobService
+	Hardware        func() (compute.Hardware, error)
+	Client          *http.Client
+	Targets         compute.TargetStore
+	Events          *events.Broker
+	Cloud           *cloud.Client
+	CloudProxyToken string
 }
 
 func (s *Server) Handler() http.Handler {
@@ -74,7 +79,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		write(w, 200, installed)
 	})
-	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
 		installed, err := s.Models.List()
 		if err != nil {
 			writeError(w, 500, err)
@@ -84,7 +89,30 @@ func (s *Server) Handler() http.Handler {
 		for _, m := range installed {
 			data = append(data, map[string]any{"id": m.ID, "object": "model", "owned_by": "backpack-run"})
 		}
+		if s.Cloud != nil && s.cloudAuthorized(r) {
+			if cloudModels, cloudErr := s.Cloud.Models(r.Context()); cloudErr == nil {
+				for _, model := range cloudModels {
+					data = append(data, map[string]any{"id": model.ID, "object": "model", "owned_by": model.OwnedBy, "display_name": model.DisplayName, "capabilities": model.Capabilities, "context_window": model.ContextWindow, "status": model.Status})
+				}
+			}
+		}
 		write(w, 200, map[string]any{"object": "list", "data": data})
+	})
+	mux.HandleFunc("GET /api/backpack/v1/cloud/models", func(w http.ResponseWriter, r *http.Request) {
+		if s.Cloud == nil {
+			writeError(w, http.StatusNotImplemented, fmt.Errorf("Backpack Cloud is not configured"))
+			return
+		}
+		if !s.cloudAuthorized(r) {
+			writeError(w, http.StatusUnauthorized, fmt.Errorf("valid local daemon authorization is required for Backpack Cloud"))
+			return
+		}
+		cloudModels, cloudErr := s.Cloud.Models(r.Context())
+		if cloudErr != nil {
+			writeError(w, cloudErrorStatus(cloudErr), cloudErr)
+			return
+		}
+		write(w, http.StatusOK, map[string]any{"object": "list", "data": cloudModels})
 	})
 	mux.HandleFunc("GET /api/backpack/v1/hardware", func(w http.ResponseWriter, _ *http.Request) {
 		h, err := s.Hardware()
@@ -356,6 +384,10 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, fmt.Errorf("model is required"))
 		return
 	}
+	if cloud.IsModel(envelope.Model) {
+		s.proxyCloud(w, r, "/v1/chat/completions", body, envelope.Stream)
+		return
+	}
 	hasImage, err := validateChatMedia(body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -432,6 +464,68 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, _ = io.Copy(w, res.Body)
+}
+
+func (s *Server) proxyCloud(w http.ResponseWriter, r *http.Request, path string, body []byte, stream bool) {
+	if s.Cloud == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("Backpack Cloud is not configured"))
+		return
+	}
+	if !s.cloudAuthorized(r) {
+		writeError(w, http.StatusUnauthorized, fmt.Errorf("valid local daemon authorization is required for Backpack Cloud"))
+		return
+	}
+	response, err := s.Cloud.Inference(r.Context(), path, body, r.Header)
+	if err != nil {
+		writeError(w, cloudErrorStatus(err), err)
+		return
+	}
+	defer response.Body.Close()
+	for _, name := range []string{"Content-Type", "Cache-Control", "Retry-After", "X-Request-ID"} {
+		if value := response.Header.Get(name); value != "" {
+			w.Header().Set(name, value)
+		}
+	}
+	w.WriteHeader(response.StatusCode)
+	if stream {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		buffer := make([]byte, 32<<10)
+		for {
+			n, readErr := response.Body.Read(buffer)
+			if n > 0 {
+				if _, err = w.Write(buffer[:n]); err != nil {
+					return
+				}
+				flusher.Flush()
+			}
+			if readErr != nil {
+				return
+			}
+		}
+	}
+	_, _ = io.Copy(w, response.Body)
+}
+
+func cloudErrorStatus(err error) int {
+	var apiError *cloud.APIError
+	if errors.As(err, &apiError) {
+		return apiError.StatusCode
+	}
+	if strings.Contains(err.Error(), "not authenticated") || strings.Contains(err.Error(), "credential") {
+		return http.StatusUnauthorized
+	}
+	return http.StatusBadGateway
+}
+
+func (s *Server) cloudAuthorized(request *http.Request) bool {
+	if s.CloudProxyToken == "" {
+		return false
+	}
+	provided := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
+	return len(provided) == len(s.CloudProxyToken) && subtle.ConstantTimeCompare([]byte(provided), []byte(s.CloudProxyToken)) == 1
 }
 
 func validateChatMedia(body []byte) (bool, error) {

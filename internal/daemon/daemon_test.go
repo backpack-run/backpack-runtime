@@ -63,3 +63,28 @@ func TestStartupLockIsExclusiveAndRecoversStaleFile(t *testing.T) {
 	}
 	recovered.Close()
 }
+
+func TestDaemonAPIKeyIsRandomAndPersisted(t *testing.T) {
+	first, err := NewAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) < 40 || first == second {
+		t.Fatal("daemon API keys are missing entropy")
+	}
+	if !ValidAPIKey(first) || ValidAPIKey("weak") {
+		t.Fatal("daemon API key validation is incorrect")
+	}
+	paths := config.NewPaths(t.TempDir())
+	if err = Write(paths, State{PID: 42, Endpoint: "http://127.0.0.1:1234", APIKey: first}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Read(paths)
+	if err != nil || state.APIKey != first {
+		t.Fatalf("daemon API key was not persisted: %#v %v", state, err)
+	}
+}

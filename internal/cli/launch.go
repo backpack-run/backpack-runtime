@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
+	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/daemon"
 	"github.com/backpack-run/backpack-runtime/internal/integrations"
@@ -59,6 +60,9 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		}
 		*modelName = selected
 	}
+	if cloud.IsModel(*modelName) {
+		return a.launchCloudModel(ctx, descriptor, *modelName, *computeName, *contextTokens, *keepAlive, *force, fs.Args())
+	}
 	entry, err := a.catalog.Resolve(*modelName)
 	if err != nil {
 		return err
@@ -99,6 +103,9 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if api.APIKey == "" {
+		return fmt.Errorf("the running Backpack daemon predates authenticated agent routing; stop it and retry so this version can start a new daemon")
+	}
 	fmt.Fprintf(a.out, "Loading %s on compute target %s...\n", entry.ID, *computeName)
 	stopEvents := a.watchEvents(ctx, api)
 	defer stopEvents()
@@ -124,7 +131,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	if err = os.MkdirAll(configDirectory, 0700); err != nil {
 		return err
 	}
-	options := integrations.ProviderOptions{Endpoint: api.BaseURL, Model: entry.ID, ContextTokens: desiredContext, ConfigDirectory: configDirectory, Executable: installation.Executable, Passthrough: fs.Args()}
+	options := integrations.ProviderOptions{Endpoint: api.BaseURL, Model: entry.ID, ContextTokens: desiredContext, ConfigDirectory: configDirectory, Executable: installation.Executable, Passthrough: fs.Args(), APIKey: api.APIKey}
 	var invocation integrations.Invocation
 	switch descriptor.ID {
 	case "claude":
@@ -143,6 +150,81 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintf(a.out, "Launching %s through Backpack at %s (session %s).\n", descriptor.DisplayName, api.BaseURL, session.ID)
+	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
+}
+
+func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Descriptor, modelName, computeName string, contextTokens int, keepAlive, force bool, passthrough []string) error {
+	if computeName != "local" && computeName != "cloud" {
+		return fmt.Errorf("a :cloud model cannot use compute target %q", computeName)
+	}
+	if keepAlive {
+		return fmt.Errorf("--keep-alive is not applicable to stateless Backpack Cloud inference")
+	}
+	if force {
+		return fmt.Errorf("--force is not applicable to Backpack Cloud inference")
+	}
+	model, err := a.cloud.ResolveModel(ctx, modelName)
+	if err != nil {
+		return err
+	}
+	if !model.HasCapability(descriptor.RequiredModelCapability) {
+		return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, descriptor.RequiredModelCapability)
+	}
+	desiredContext := contextTokens
+	if desiredContext == 0 {
+		desiredContext = descriptor.RecommendedContextTokens
+		if model.ContextWindow > 0 && model.ContextWindow < desiredContext {
+			desiredContext = model.ContextWindow
+		}
+	}
+	if model.ContextWindow > 0 && desiredContext > model.ContextWindow {
+		return fmt.Errorf("requested context %d exceeds cloud model maximum %d", desiredContext, model.ContextWindow)
+	}
+	installation, err := integrations.NewDiscovery().Detect(descriptor)
+	if err != nil {
+		if errors.Is(err, integrations.ErrExecutableNotFound) {
+			return fmt.Errorf("%w\n%s", err, integrationInstallInstructions(descriptor.ID))
+		}
+		return err
+	}
+	api, err := daemon.Ensure(ctx, a.paths, a.version)
+	if err != nil {
+		return err
+	}
+	if api.APIKey == "" {
+		return fmt.Errorf("the running Backpack daemon predates secure Cloud proxying; stop it and retry so this version can start a new daemon")
+	}
+	configRoot, err := filepath.Abs(filepath.Join(a.paths.Config, "integrations"))
+	if err != nil {
+		return err
+	}
+	configDirectory, err := integrations.IsolatedConfigDirectory(configRoot, descriptor.ID)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(configDirectory, 0700); err != nil {
+		return err
+	}
+	entry := catalog.Model{ID: model.ID, DisplayName: model.DisplayName, Capabilities: append([]string(nil), model.Capabilities...), Status: model.Status}
+	options := integrations.ProviderOptions{Endpoint: api.BaseURL, Model: model.ID, ContextTokens: desiredContext, ConfigDirectory: configDirectory, Executable: installation.Executable, Passthrough: passthrough, APIKey: api.APIKey}
+	var invocation integrations.Invocation
+	switch descriptor.ID {
+	case "claude":
+		invocation, err = integrations.ClaudeInvocation(options)
+	case "codex":
+		options.CatalogPath = filepath.Join(configDirectory, "models.json")
+		if err = integrations.WriteCodexModelCatalog(integrations.CodexCatalogOptions{Model: entry, ContextTokens: desiredContext, Path: options.CatalogPath}); err == nil {
+			invocation, err = integrations.CodexInvocation(options)
+		}
+	case "opencode":
+		invocation, err = integrations.OpenCodeInvocation(options)
+	default:
+		err = fmt.Errorf("integration %q has no launch builder", descriptor.ID)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(a.out, "Launching %s through Backpack Cloud model %s via the local loopback API.\n", descriptor.DisplayName, model.ID)
 	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
 }
 
@@ -189,7 +271,11 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 		report["installed"] = false
 		report["install_instructions"] = integrationInstallInstructions(descriptor.ID)
 	}
-	if *computeName == "local" {
+	cloudModel := cloud.IsModel(*modelName)
+	if cloudModel && (*computeName == "local" || *computeName == "cloud") {
+		report["compute"] = "cloud"
+		report["compute_configured"] = true
+	} else if *computeName == "local" {
 		report["compute_configured"] = true
 	} else if _, targetErr := a.targetStore().Get(*computeName); targetErr == nil {
 		report["compute_configured"] = true
@@ -198,22 +284,35 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 		report["compute_error"] = targetErr.Error()
 	}
 	if *modelName != "" {
-		entry, resolveErr := a.catalog.Resolve(*modelName)
-		if resolveErr != nil {
-			report["model_error"] = resolveErr.Error()
-		} else {
-			report["model"] = entry.ID
-			report["code_capable"] = integrations.ModelSupports(descriptor, entry)
-			report["tool_calling_declared"] = hasCatalogCapability(entry, "tool-calling")
-			_, installedErr := a.models.Installed(entry.ID)
-			report["model_installed"] = installedErr == nil
-			if resolved, metadataErr := a.models.ResolvePackage(ctx, entry); metadataErr == nil {
-				report["context_tokens"] = resolved.Manifest.Model.ContextLength
-				check, _ := integrations.CheckRecommendedContext(descriptor, resolved.Manifest.Model.ContextLength)
-				report["context_status"] = check.Status
-				report["context_reason"] = check.Reason
+		if cloudModel {
+			cloudModelInfo, resolveErr := a.cloud.ResolveModel(ctx, *modelName)
+			if resolveErr != nil {
+				report["model_error"] = resolveErr.Error()
 			} else {
-				report["metadata_error"] = metadataErr.Error()
+				report["model"] = cloudModelInfo.ID
+				report["model_status"] = cloudModelInfo.Status
+				report["code_capable"] = cloudModelInfo.HasCapability(descriptor.RequiredModelCapability)
+				report["context_tokens"] = cloudModelInfo.ContextWindow
+				report["model_installed"] = "not-applicable"
+			}
+		} else {
+			entry, resolveErr := a.catalog.Resolve(*modelName)
+			if resolveErr != nil {
+				report["model_error"] = resolveErr.Error()
+			} else {
+				report["model"] = entry.ID
+				report["code_capable"] = integrations.ModelSupports(descriptor, entry)
+				report["tool_calling_declared"] = hasCatalogCapability(entry, "tool-calling")
+				_, installedErr := a.models.Installed(entry.ID)
+				report["model_installed"] = installedErr == nil
+				if resolved, metadataErr := a.models.ResolvePackage(ctx, entry); metadataErr == nil {
+					report["context_tokens"] = resolved.Manifest.Model.ContextLength
+					check, _ := integrations.CheckRecommendedContext(descriptor, resolved.Manifest.Model.ContextLength)
+					report["context_status"] = check.Status
+					report["context_reason"] = check.Reason
+				} else {
+					report["metadata_error"] = metadataErr.Error()
+				}
 			}
 		}
 	}

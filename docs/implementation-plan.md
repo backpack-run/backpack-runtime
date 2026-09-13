@@ -28,3 +28,4 @@
 - [x] Add opt-in real macOS, Codex/model, and SSH release-qualification workflows.
 - [ ] Qualify at least one real Backpack coding model end-to-end with Codex and Claude Code; Claude executable and suitable model hardware are currently unavailable locally.
 - [x] Deploy reviewed `backpack.run/install.sh` and `backpack.run/install.ps1` endpoints, verify their bytes against this repository, and publish the short installation commands.
+- [x] Add live Backpack Cloud model discovery, Ed25519 device authorization, non-interactive API-key auth, secured loopback proxying, and real Codex/Cloud qualification.

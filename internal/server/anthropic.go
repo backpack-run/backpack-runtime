@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/inference"
 )
 
@@ -35,6 +36,14 @@ func (s *Server) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
 		writeAnthropicError(w, http.StatusBadRequest, err)
+		return
+	}
+	var envelope struct {
+		Model  string `json:"model"`
+		Stream bool   `json:"stream"`
+	}
+	if json.Unmarshal(body, &envelope) == nil && cloud.IsModel(envelope.Model) {
+		s.proxyCloud(w, r, "/v1/messages", body, envelope.Stream)
 		return
 	}
 	request, stream, err := parseAnthropicRequest(body)

@@ -8,6 +8,7 @@ Implemented loopback endpoints:
 - `GET /api/backpack/v1/version`
 - `GET /api/backpack/v1/hardware`
 - `GET /api/backpack/v1/models`
+- `GET /api/backpack/v1/cloud/models` (requires the private local-daemon bearer token)
 - `GET /api/backpack/v1/compute`
 - `GET /api/backpack/v1/sessions`
 - `GET /api/backpack/v1/events` (structured server-sent events)
@@ -33,3 +34,5 @@ Transcription uses the same endpoint for native whisper.cpp and isolated-Python 
 OpenAI-compatible chat content arrays may include `image_url` parts. Backpack accepts inline `data:image/...` URLs only; HTTP(S) and filesystem URLs are rejected. A typed, verified `multimodal-projector` package artifact is mandatory. This contract is experimental pending real Backpack Devstral validation.
 
 The Responses and Anthropic handlers translate through a protocol-neutral inference contract; runtime adapters do not contain client-specific wire types. See [OpenAI Responses compatibility](openai-responses-compatibility.md) and [Anthropic Messages compatibility](anthropic-compatibility.md) for the deliberately limited subsets and qualification status.
+
+Requests whose model ID ends in `:cloud` are forwarded without lossy protocol translation to the corresponding Backpack Cloud endpoint. Cloud model discovery is live, and Cloud requests require both a configured Cloud credential and the random bearer token for the local daemon. The daemon replaces—not forwards—that local credential when authenticating upstream. See [Backpack Cloud](cloud.md).

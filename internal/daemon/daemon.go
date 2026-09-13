@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -20,12 +22,23 @@ type State struct {
 	Endpoint      string    `json:"endpoint"`
 	StartedAt     time.Time `json:"started_at"`
 	Version       string    `json:"version"`
+	APIKey        string    `json:"api_key,omitempty"`
 }
 
 func statePath(p config.Paths) string { return filepath.Join(p.State, "runtime.json") }
 func lockPath(p config.Paths) string  { return filepath.Join(p.State, "startup.lock") }
 func Read(p config.Paths) (State, error) {
 	var s State
+	info, err := os.Lstat(statePath(p))
+	if err != nil {
+		return s, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return s, fmt.Errorf("runtime state path is not a regular file")
+	}
+	if err = validateStatePermissions(info); err != nil {
+		return s, err
+	}
 	data, err := os.ReadFile(statePath(p))
 	if err != nil {
 		return s, err
@@ -46,6 +59,10 @@ func Write(p config.Paths, s State) error {
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
+	if info, err := os.Lstat(statePath(p)); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("refusing to replace symlinked runtime state")
+	}
 	_ = os.Remove(statePath(p))
 	return os.Rename(tmp, statePath(p))
 }
@@ -59,6 +76,9 @@ func ClearIfOwned(p config.Paths, pid int) {
 func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client, error) {
 	if s, err := Read(p); err == nil && s.Endpoint != "" {
 		c := client.New(s.Endpoint)
+		if ValidAPIKey(s.APIKey) {
+			c.APIKey = s.APIKey
+		}
 		check, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
 		err = c.Health(check)
 		cancel()
@@ -76,6 +96,9 @@ func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client
 	defer func() { lock.Close(); _ = os.Remove(lockPath(p)) }()
 	if s, err := Read(p); err == nil && s.Endpoint != "" {
 		c := client.New(s.Endpoint)
+		if ValidAPIKey(s.APIKey) {
+			c.APIKey = s.APIKey
+		}
 		check, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
 		err = c.Health(check)
 		cancel()
@@ -84,6 +107,10 @@ func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client
 		}
 	}
 	endpoint, err := endpoint()
+	if err != nil {
+		return nil, err
+	}
+	apiKey, err := NewAPIKey()
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +124,7 @@ func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client
 	}
 	cmd := exec.Command(exe, "_daemon", "--address", endpoint)
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "BACKPACK_DAEMON_API_KEY="+apiKey)
 	cmd.Stdin = nil
 	cmd.Stdout = log
 	cmd.Stderr = log
@@ -104,19 +132,33 @@ func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client
 	if err = cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start runtime service: %w", err)
 	}
-	state := State{PID: cmd.Process.Pid, Endpoint: "http://" + endpoint, StartedAt: time.Now().UTC(), Version: version}
+	state := State{PID: cmd.Process.Pid, Endpoint: "http://" + endpoint, StartedAt: time.Now().UTC(), Version: version, APIKey: apiKey}
 	if err = Write(p, state); err != nil {
 		_ = cmd.Process.Kill()
 		return nil, err
 	}
 	_ = cmd.Process.Release()
 	c := client.New(state.Endpoint)
+	c.APIKey = state.APIKey
 	wait, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err = c.WaitHealthy(wait); err != nil {
 		return nil, fmt.Errorf("runtime service did not become healthy: %w (see %s)", err, filepath.Join(p.Logs, "runtime-service.log"))
 	}
 	return c, nil
+}
+
+func NewAPIKey() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("generate daemon API key: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
+}
+
+func ValidAPIKey(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == 32
 }
 func endpoint() (string, error) {
 	preferred := "127.0.0.1:11434"
