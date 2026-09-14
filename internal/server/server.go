@@ -63,6 +63,7 @@ type Server struct {
 	Events          *events.Broker
 	Cloud           *cloud.Client
 	CloudProxyToken string
+	shutdown        func()
 }
 
 func (s *Server) Handler() http.Handler {
@@ -71,6 +72,16 @@ func (s *Server) Handler() http.Handler {
 		write(w, 200, map[string]any{"status": "ok", "version": s.Version})
 	})
 	mux.HandleFunc("GET /api/backpack/v1/version", func(w http.ResponseWriter, _ *http.Request) { write(w, 200, map[string]string{"version": s.Version}) })
+	mux.HandleFunc("POST /api/backpack/v1/shutdown", func(w http.ResponseWriter, r *http.Request) {
+		if !s.cloudAuthorized(r) {
+			writeError(w, http.StatusUnauthorized, fmt.Errorf("valid local daemon authorization is required for shutdown"))
+			return
+		}
+		write(w, http.StatusAccepted, map[string]bool{"stopping": true})
+		if s.shutdown != nil {
+			go s.shutdown()
+		}
+	})
 	mux.HandleFunc("GET /api/backpack/v1/models", func(w http.ResponseWriter, _ *http.Request) {
 		installed, err := s.Models.List()
 		if err != nil {
@@ -609,6 +620,11 @@ func (s *Server) Serve(ctx context.Context, address string) error {
 		return fmt.Errorf("refusing non-loopback bind %q; remote API authentication is not implemented", host)
 	}
 	httpServer := &http.Server{Addr: address, Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	s.shutdown = func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(shutdownCtx)
+	}
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return err

@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/backpack-run/backpack-runtime/internal/config"
+	"github.com/backpack-run/backpack-runtime/pkg/client"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,5 +90,55 @@ func TestDaemonAPIKeyIsRandomAndPersisted(t *testing.T) {
 	state, err := Read(paths)
 	if err != nil || state.APIKey != first {
 		t.Fatalf("daemon API key was not persisted: %#v %v", state, err)
+	}
+}
+
+func TestReplaceOutdatedDaemonRequiresIdleSessionsAndStopsCleanly(t *testing.T) {
+	paths := config.NewPaths(t.TempDir())
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/backpack/v1/version":
+			_, _ = w.Write([]byte(`{"version":"old"}`))
+		case "/api/backpack/v1/sessions":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case "/api/backpack/v1/shutdown":
+			w.WriteHeader(http.StatusAccepted)
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				server.Close()
+			}()
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	state := State{PID: os.Getpid(), Endpoint: server.URL, Version: "old"}
+	if err := Write(paths, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceOutdated(context.Background(), paths, state, client.New(server.URL), "new"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(paths); !os.IsNotExist(err) {
+		t.Fatalf("outdated daemon state was not cleared: %v", err)
+	}
+}
+
+func TestReplaceOutdatedDaemonRefusesActiveSessions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/backpack/v1/version":
+			_, _ = w.Write([]byte(`{"version":"old"}`))
+		case "/api/backpack/v1/sessions":
+			_, _ = w.Write([]byte(`{"data":[{"id":"active"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	err := replaceOutdated(context.Background(), config.NewPaths(t.TempDir()), State{Endpoint: server.URL, Version: "old"}, client.New(server.URL), "new")
+	if err == nil || !strings.Contains(err.Error(), "active session") {
+		t.Fatalf("active sessions did not block daemon replacement: %v", err)
 	}
 }

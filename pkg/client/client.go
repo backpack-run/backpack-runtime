@@ -143,6 +143,16 @@ func (c *Client) Health(ctx context.Context) error {
 	}
 	return nil
 }
+func (c *Client) Version(ctx context.Context) (string, error) {
+	var out struct {
+		Version string `json:"version"`
+	}
+	err := c.json(ctx, http.MethodGet, "/api/backpack/v1/version", nil, &out)
+	return out.Version, err
+}
+func (c *Client) Shutdown(ctx context.Context) error {
+	return c.json(ctx, http.MethodPost, "/api/backpack/v1/shutdown", map[string]any{}, nil)
+}
 func (c *Client) Sessions(ctx context.Context) ([]Session, error) {
 	var out struct {
 		Data []Session `json:"data"`

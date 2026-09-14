@@ -75,14 +75,8 @@ func ClearIfOwned(p config.Paths, pid int) {
 
 func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client, error) {
 	if s, err := Read(p); err == nil && s.Endpoint != "" {
-		c := client.New(s.Endpoint)
-		if ValidAPIKey(s.APIKey) {
-			c.APIKey = s.APIKey
-		}
-		check, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
-		err = c.Health(check)
-		cancel()
-		if err == nil {
+		c, running := runningClient(ctx, s)
+		if running && s.Version == version {
 			return c, nil
 		}
 	}
@@ -95,15 +89,14 @@ func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client
 	}
 	defer func() { lock.Close(); _ = os.Remove(lockPath(p)) }()
 	if s, err := Read(p); err == nil && s.Endpoint != "" {
-		c := client.New(s.Endpoint)
-		if ValidAPIKey(s.APIKey) {
-			c.APIKey = s.APIKey
-		}
-		check, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
-		err = c.Health(check)
-		cancel()
-		if err == nil {
-			return c, nil
+		c, running := runningClient(ctx, s)
+		if running {
+			if s.Version == version {
+				return c, nil
+			}
+			if err = replaceOutdated(ctx, p, s, c, version); err != nil {
+				return nil, err
+			}
 		}
 	}
 	endpoint, err := endpoint()
@@ -146,6 +139,52 @@ func Ensure(ctx context.Context, p config.Paths, version string) (*client.Client
 		return nil, fmt.Errorf("runtime service did not become healthy: %w (see %s)", err, filepath.Join(p.Logs, "runtime-service.log"))
 	}
 	return c, nil
+}
+
+func runningClient(ctx context.Context, s State) (*client.Client, bool) {
+	c := client.New(s.Endpoint)
+	if ValidAPIKey(s.APIKey) {
+		c.APIKey = s.APIKey
+	}
+	check, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
+	defer cancel()
+	return c, c.Health(check) == nil
+}
+
+func replaceOutdated(ctx context.Context, p config.Paths, state State, c *client.Client, version string) error {
+	actual, err := c.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect running Backpack daemon before upgrade: %w", err)
+	}
+	if actual == version {
+		state.Version = version
+		return Write(p, state)
+	}
+	sessions, err := c.Sessions(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect sessions owned by Backpack daemon %s before upgrading to %s: %w", actual, version, err)
+	}
+	if len(sessions) != 0 {
+		return fmt.Errorf("Backpack daemon %s has %d active session(s); run `backpack ps` and `backpack stop <session>` before using Backpack %s", actual, len(sessions), version)
+	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	err = c.Shutdown(shutdownCtx)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("Backpack daemon %s (PID %d) cannot be upgraded automatically because it predates graceful shutdown; stop that process and retry Backpack %s: %w", actual, state.PID, version, err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		check, checkCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		healthErr := c.Health(check)
+		checkCancel()
+		if healthErr != nil {
+			ClearIfOwned(p, state.PID)
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("Backpack daemon %s did not stop while upgrading to %s", actual, version)
 }
 
 func NewAPIKey() (string, error) {

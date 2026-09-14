@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/config"
@@ -76,6 +77,30 @@ func TestCloudProxyRejectsUnauthenticatedLocalRequest(t *testing.T) {
 	s.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"coder:cloud","messages":[]}`)))
 	if response.Code != http.StatusUnauthorized || upstreamCalls != 0 {
 		t.Fatalf("unauthenticated local request status=%d upstream_calls=%d", response.Code, upstreamCalls)
+	}
+}
+
+func TestDaemonShutdownRequiresLocalAuthorization(t *testing.T) {
+	stopped := make(chan struct{}, 1)
+	s := Server{CloudProxyToken: "daemon-secret", shutdown: func() { stopped <- struct{}{} }}
+
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/backpack/v1/shutdown", nil))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated shutdown status=%d", response.Code)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/backpack/v1/shutdown", nil)
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	response = httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("authorized shutdown status=%d body=%s", response.Code, response.Body.String())
+	}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("authorized shutdown did not invoke the server callback")
 	}
 }
 
