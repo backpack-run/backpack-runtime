@@ -101,7 +101,7 @@ func TestReplaceOutdatedDaemonRequiresIdleSessionsAndStopsCleanly(t *testing.T) 
 		case "/api/backpack/v1/version":
 			_, _ = w.Write([]byte(`{"version":"old"}`))
 		case "/api/backpack/v1/sessions":
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"historical","status":"stopped"},{"id":"failed","status":"failed"}]}`))
 		case "/api/backpack/v1/shutdown":
 			w.WriteHeader(http.StatusAccepted)
 			go func() {
@@ -131,7 +131,7 @@ func TestReplaceOutdatedDaemonRefusesActiveSessions(t *testing.T) {
 		case "/api/backpack/v1/version":
 			_, _ = w.Write([]byte(`{"version":"old"}`))
 		case "/api/backpack/v1/sessions":
-			_, _ = w.Write([]byte(`{"data":[{"id":"active"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"active","status":"ready"}]}`))
 		default:
 			http.NotFound(w, r)
 		}

@@ -164,8 +164,15 @@ func replaceOutdated(ctx context.Context, p config.Paths, state State, c *client
 	if err != nil {
 		return fmt.Errorf("inspect sessions owned by Backpack daemon %s before upgrading to %s: %w", actual, version, err)
 	}
-	if len(sessions) != 0 {
-		return fmt.Errorf("Backpack daemon %s has %d active session(s); run `backpack ps` and `backpack stop <session>` before using Backpack %s", actual, len(sessions), version)
+	active := 0
+	for _, session := range sessions {
+		switch session.Status {
+		case "starting", "ready", "stopping":
+			active++
+		}
+	}
+	if active != 0 {
+		return fmt.Errorf("Backpack daemon %s has %d active session(s); run `backpack ps` and `backpack stop <session>` before using Backpack %s", actual, active, version)
 	}
 	shutdownCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	err = c.Shutdown(shutdownCtx)
