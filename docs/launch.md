@@ -33,12 +33,12 @@ backpack launch codex --model qwen3-coder-next -- --help
 
 Backpack does not install external agents automatically. Missing tools produce official installation guidance. `--keep-alive` retains the model session after the agent exits; otherwise Backpack requests a graceful session stop.
 
-Codex App is the exception to the child-only launch model. `backpack launch codex-app` writes a persistent, narrowly scoped desktop configuration and opens the installed Windows/macOS app. It accepts no passthrough arguments. Run `backpack launch codex-app --restore` to restore the exact pre-Backpack configuration; `--no-open` performs either operation without opening the app. If Codex App is already running, quit and reopen it to load the change.
+Codex App is the exception to the child-only launch model. `backpack launch codex-app` writes a persistent, narrowly scoped desktop configuration and opens the installed Windows/macOS app. It accepts no passthrough arguments. Run `backpack launch codex-app --restore` to remove Backpack's managed settings and restore the preserved configuration; `--no-open` performs either operation without opening the app. Explicit reconfiguration preserves unrelated settings added by Codex or the user since the first launch. If Codex App is already running, quit and reopen it to load the change.
 
 ## Security boundary
 
 Backpack configures provider routing, model selection, and an isolated configuration directory. It does not weaken Codex/OpenCode sandbox and approval settings or Claude Code permissions, and never adds permission-bypass flags. Tool execution, workspace access, and user approvals remain owned by the launched agent.
 
-Provider tokens are random per-daemon values and redacted from diagnostics. CLI integrations receive them only in the child process. Codex App receives an unguessable token as part of a Backpack-only loopback route because the desktop app retains its normal authentication header; the route replaces that header before Cloud forwarding. Cloud credentials remain in the runtime process and are never passed to a third-party agent. The Runtime API remains loopback-only and is not a remotely authenticated service.
+Provider tokens are random per-daemon values and redacted from diagnostics. CLI integrations receive them only in the child process. Codex App receives an unguessable token as part of a Backpack-only loopback route. The route sends allow-listed Backpack models to Backpack after replacing Codex authorization, while native catalog models retain their normal OpenAI/ChatGPT route. Cloud credentials remain in the runtime process and are never passed to a third-party agent. The Runtime API remains loopback-only and is not a remotely authenticated service.
 
 See the integration-specific documents and protocol subset documents for limitations.

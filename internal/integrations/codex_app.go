@@ -57,18 +57,26 @@ func ConfigureCodexApp(options CodexAppOptions) error {
 	if err != nil {
 		return err
 	}
+	var rebasedOriginal []byte
 	if state, stateErr := readCodexAppState(statePath); stateErr == nil {
 		if !samePath(state.ConfigPath, options.ConfigPath) {
 			return fmt.Errorf("Codex App restore state belongs to a different config path: %s", state.ConfigPath)
-		}
-		if digest(current) != state.ManagedSHA256 {
-			return fmt.Errorf("Codex App config changed after Backpack configured it; refusing to overwrite %s (restore state: %s)", options.ConfigPath, statePath)
 		}
 		original, _, backupErr := readRegularFile(backupPath)
 		if backupErr != nil || digest(original) != state.OriginalSHA256 {
 			return fmt.Errorf("Codex App backup does not match restore state; refusing to reconfigure")
 		}
 		existed = state.OriginalExisted
+		if digest(current) != state.ManagedSHA256 {
+			rebasedOriginal, err = removeCodexAppManagedKeys(current)
+			if err != nil {
+				return fmt.Errorf("preserve Codex App changes before reconfiguration: %w", err)
+			}
+			// Re-running launch is explicit consent to refresh Backpack's managed
+			// keys. Preserve all other changes made by Codex or the user so a
+			// later restore never rolls the app back to stale configuration.
+			existed = true
+		}
 	} else if !errors.Is(stateErr, os.ErrNotExist) {
 		return stateErr
 	}
@@ -93,8 +101,15 @@ func ConfigureCodexApp(options CodexAppOptions) error {
 		}
 		newState.OriginalSHA256 = previous.OriginalSHA256
 		newState.OriginalExisted = previous.OriginalExisted
+		if rebasedOriginal != nil {
+			newState.OriginalSHA256 = digest(rebasedOriginal)
+			newState.OriginalExisted = true
+			if err = writePrivateAtomic(backupPath, rebasedOriginal); err != nil {
+				return fmt.Errorf("update Codex App restore backup: %w", err)
+			}
+		}
 	}
-	if err = WriteCodexModelCatalog(CodexCatalogOptions{Model: options.Model, ContextTokens: options.ContextTokens, Path: catalogPath}); err != nil {
+	if err = writeCombinedCodexAppCatalog(options.ConfigPath, catalogPath, options.Model, options.ContextTokens); err != nil {
 		return err
 	}
 	if err = writePrivateAtomic(options.ConfigPath, managed); err != nil {
@@ -106,6 +121,87 @@ func ConfigureCodexApp(options CodexAppOptions) error {
 		return fmt.Errorf("write Codex App restore state: %w", err)
 	}
 	return nil
+}
+
+func removeCodexAppManagedKeys(input []byte) ([]byte, error) {
+	text := strings.ReplaceAll(string(input), "\r\n", "\n")
+	for _, key := range []string{"model", "model_provider", "model_catalog_json", "openai_base_url", "profile"} {
+		var err error
+		text, err = removeRootStringAssignment(text, key)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var parsed map[string]any
+	if len(strings.TrimSpace(text)) > 0 {
+		if err := toml.Unmarshal([]byte(text), &parsed); err != nil {
+			return nil, fmt.Errorf("invalid Codex config TOML: %w", err)
+		}
+	}
+	return []byte(text), nil
+}
+
+// writeCombinedCodexAppCatalog keeps Codex's own account-aware model catalog in
+// the picker and adds the Backpack model. The source cache is model metadata,
+// not auth.json; Backpack never reads or copies Codex credentials.
+func writeCombinedCodexAppCatalog(configPath, outputPath string, model catalog.Model, contextTokens int) error {
+	type rawCatalog struct {
+		Models []json.RawMessage `json:"models"`
+	}
+
+	nativePath := filepath.Join(filepath.Dir(configPath), "models_cache.json")
+	var native rawCatalog
+	if data, exists, err := readRegularFile(nativePath); err != nil {
+		return fmt.Errorf("read Codex native model cache: %w", err)
+	} else if exists {
+		if err = json.Unmarshal(data, &native); err != nil {
+			return fmt.Errorf("decode Codex native model cache: %w", err)
+		}
+	}
+
+	priority := -1
+	for _, raw := range native.Models {
+		var item struct {
+			Priority *int `json:"priority"`
+		}
+		if json.Unmarshal(raw, &item) == nil && item.Priority != nil && *item.Priority <= priority {
+			priority = *item.Priority - 1
+		}
+	}
+	backpack, err := json.Marshal(codexModelCatalogEntry(model, contextTokens, priority))
+	if err != nil {
+		return err
+	}
+	combined := rawCatalog{Models: []json.RawMessage{backpack}}
+	seen := map[string]bool{strings.ToLower(strings.TrimSpace(model.ID)): true}
+	for _, raw := range native.Models {
+		var item map[string]json.RawMessage
+		if err = json.Unmarshal(raw, &item); err != nil {
+			return fmt.Errorf("decode Codex native model entry: %w", err)
+		}
+		var slug string
+		if err = json.Unmarshal(item["slug"], &slug); err != nil || strings.TrimSpace(slug) == "" {
+			return fmt.Errorf("Codex native model entry has no valid slug")
+		}
+		key := strings.ToLower(strings.TrimSpace(slug))
+		if seen[key] {
+			continue
+		}
+		// Native entries remain ChatGPT-account models. The routing decision is
+		// made independently from this display catalog.
+		item["supported_in_api"] = json.RawMessage("false")
+		normalized, marshalErr := json.Marshal(item)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		combined.Models = append(combined.Models, normalized)
+		seen[key] = true
+	}
+	data, err := json.MarshalIndent(combined, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writePrivateAtomic(outputPath, append(data, '\n'))
 }
 
 func RestoreCodexApp(configPath, stateDirectory string) error {

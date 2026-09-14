@@ -203,6 +203,53 @@ func TestCodexAppRouteRejectsUnknownContentEncoding(t *testing.T) {
 	}
 }
 
+func TestCodexAppNativeModelKeepsOpenAISessionAwayFromBackpackCloud(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "backpack-cloud-secret")
+	cloudCalls := 0
+	cloudUpstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { cloudCalls++ }))
+	defer cloudUpstream.Close()
+	var nativeAuthorization, nativeAccount, nativePath string
+	nativeUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nativeAuthorization = r.Header.Get("Authorization")
+		nativeAccount = r.Header.Get("ChatGPT-Account-ID")
+		nativePath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: native-ok\n\n")
+	}))
+	defer nativeUpstream.Close()
+	s := Server{
+		Cloud:           serverCloudClient(t, cloudUpstream.URL),
+		CloudProxyToken: "daemon-secret",
+		codexChatGPTURL: nativeUpstream.URL + "/backend-api/codex/responses",
+		Client:          &http.Client{},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/backpack/v1/integrations/codex-app/daemon-secret/v1/responses", strings.NewReader(`{"model":"gpt-account-model","input":"hello","stream":true}`))
+	request.Header.Set("Authorization", "Bearer native-codex-session")
+	request.Header.Set("ChatGPT-Account-ID", "account-123")
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "data: native-ok\n\n" {
+		t.Fatalf("native response status=%d body=%q", response.Code, response.Body.String())
+	}
+	if cloudCalls != 0 || nativeAuthorization != "Bearer native-codex-session" || nativeAccount != "account-123" || nativePath != "/backend-api/codex/responses" {
+		t.Fatalf("routing cloud_calls=%d auth=%q account=%q path=%q", cloudCalls, nativeAuthorization, nativeAccount, nativePath)
+	}
+}
+
+func TestCodexAppRefusesDaemonCredentialForNativeModel(t *testing.T) {
+	nativeCalls := 0
+	nativeUpstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nativeCalls++ }))
+	defer nativeUpstream.Close()
+	s := Server{CloudProxyToken: "daemon-secret", codexOpenAIURL: nativeUpstream.URL + "/v1/responses", Client: &http.Client{}}
+	request := httptest.NewRequest(http.MethodPost, "/api/backpack/v1/integrations/codex-app/daemon-secret/v1/responses", strings.NewReader(`{"model":"gpt-account-model","input":"hello"}`))
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || nativeCalls != 0 || !strings.Contains(response.Body.String(), "require Codex authentication") {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, nativeCalls, response.Body.String())
+	}
+}
+
 func TestModelsDoNotFailWhenCloudIsLoggedOut(t *testing.T) {
 	t.Setenv("BACKPACK_API_KEY", "")
 	paths := config.NewPaths(t.TempDir())

@@ -63,6 +63,8 @@ type Server struct {
 	Events          *events.Broker
 	Cloud           *cloud.Client
 	CloudProxyToken string
+	codexChatGPTURL string
+	codexOpenAIURL  string
 	shutdown        func()
 }
 
@@ -175,21 +177,60 @@ func (s *Server) codexAppModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) codexAppResponses(w http.ResponseWriter, r *http.Request) {
-	authorized, cloned := s.authorizeCodexAppRequest(r)
-	if !authorized {
+	if !s.validCodexAppPathToken(r) {
 		writeError(w, http.StatusUnauthorized, fmt.Errorf("valid Codex App loopback authorization is required"))
 		return
 	}
+	cloned := r.Clone(r.Context())
+	cloned.Header = r.Header.Clone()
 	if err := decodeCodexAppRequest(cloned); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	s.responses(w, cloned)
+	body, err := io.ReadAll(io.LimitReader(cloned.Body, maxCodexAppBodyBytes+1))
+	if err != nil || int64(len(body)) > maxCodexAppBodyBytes {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("read Codex App request body"))
+		return
+	}
+	cloned.Body = io.NopCloser(bytes.NewReader(body))
+	cloned.ContentLength = int64(len(body))
+	var envelope struct {
+		Model string `json:"model"`
+	}
+	if err = json.Unmarshal(body, &envelope); err != nil || strings.TrimSpace(envelope.Model) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid Codex App Responses request"))
+		return
+	}
+	if s.isBackpackModel(envelope.Model) {
+		// Never let the Codex App's OpenAI credential reach Backpack Cloud.
+		cloned.Header.Set("Authorization", "Bearer "+s.CloudProxyToken)
+		s.responses(w, cloned)
+		return
+	}
+	if err = s.proxyNativeCodexResponse(w, cloned, body); err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, errNativeCodexAuth) {
+			status = http.StatusUnauthorized
+		}
+		writeError(w, status, err)
+	}
+}
+
+func (s *Server) isBackpackModel(name string) bool {
+	if cloud.IsModel(name) {
+		return true
+	}
+	_, err := s.Catalog.Resolve(name)
+	return err == nil
+}
+
+func (s *Server) validCodexAppPathToken(r *http.Request) bool {
+	provided := r.PathValue("token")
+	return s.CloudProxyToken != "" && len(provided) == len(s.CloudProxyToken) && subtle.ConstantTimeCompare([]byte(provided), []byte(s.CloudProxyToken)) == 1
 }
 
 func (s *Server) authorizeCodexAppRequest(r *http.Request) (bool, *http.Request) {
-	provided := r.PathValue("token")
-	if s.CloudProxyToken == "" || len(provided) != len(s.CloudProxyToken) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.CloudProxyToken)) != 1 {
+	if !s.validCodexAppPathToken(r) {
 		return false, nil
 	}
 	cloned := r.Clone(r.Context())

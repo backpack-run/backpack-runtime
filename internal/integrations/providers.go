@@ -258,17 +258,7 @@ func WriteCodexModelCatalog(options CodexCatalogOptions) error {
 	if options.Path == "" || !filepath.IsAbs(options.Path) {
 		return fmt.Errorf("Codex model catalog path must be absolute")
 	}
-	modalities := []string{"text"}
-	if hasCapability(options.Model.Capabilities, "vision") {
-		modalities = append(modalities, "image")
-	}
-	payload := map[string]any{"models": []any{map[string]any{
-		"slug": options.Model.ID, "display_name": options.Model.DisplayName, "context_window": options.ContextTokens,
-		"shell_type": "default", "visibility": "list", "supported_in_api": true, "priority": 0,
-		"truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "input_modalities": modalities,
-		"base_instructions": codexAgentInstructions, "support_verbosity": false, "supports_parallel_tool_calls": false,
-		"supports_reasoning_summaries": false, "supported_reasoning_levels": []any{}, "experimental_supported_tools": []any{},
-	}}}
+	payload := map[string]any{"models": []any{codexModelCatalogEntry(options.Model, options.ContextTokens, 0)}}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
@@ -295,4 +285,18 @@ func WriteCodexModelCatalog(options CodexCatalogOptions) error {
 		return err
 	}
 	return os.Rename(temporaryPath, options.Path)
+}
+
+func codexModelCatalogEntry(model catalog.Model, contextTokens, priority int) map[string]any {
+	modalities := []string{"text"}
+	if hasCapability(model.Capabilities, "vision") {
+		modalities = append(modalities, "image")
+	}
+	return map[string]any{
+		"slug": model.ID, "display_name": model.DisplayName, "context_window": contextTokens,
+		"shell_type": "default", "visibility": "list", "supported_in_api": true, "priority": priority,
+		"truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "input_modalities": modalities,
+		"base_instructions": codexAgentInstructions, "support_verbosity": false, "supports_parallel_tool_calls": false,
+		"supports_reasoning_summaries": false, "supported_reasoning_levels": []any{}, "experimental_supported_tools": []any{},
+	}
 }
