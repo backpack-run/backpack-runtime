@@ -74,7 +74,10 @@ func New(paths config.Paths) (*Client, error) {
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 60 * time.Second
+	// Scale-to-zero GPU workers can require several minutes to load model
+	// weights. Keep a finite bound, but do not fail before a qualified cold
+	// start has had time to return its first response headers.
+	transport.ResponseHeaderTimeout = 5 * time.Minute
 	transport.TLSHandshakeTimeout = 15 * time.Second
 	return &Client{
 		BaseURL: strings.TrimRight(parsed.String(), "/"),

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/config"
 	"github.com/backpack-run/backpack-runtime/internal/models"
+	"github.com/klauspost/compress/zstd"
 )
 
 func TestCloudProtocolsProxyRawPayloadAndStripLocalCredential(t *testing.T) {
@@ -64,6 +66,27 @@ func TestCloudStreamingIsForwardedWithoutBufferingContractChanges(t *testing.T) 
 	s.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "response.output_text.delta") || !strings.Contains(response.Body.String(), "[DONE]") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestCloudPlainTextFailureBecomesStructuredAPIError(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "test-stream-key")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		_, _ = io.WriteString(w, "provider-specific failure details")
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"coder:cloud","input":"hello","stream":true}`))
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusGatewayTimeout || response.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("status=%d content-type=%q body=%s", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "GPU worker becomes ready") || strings.Contains(response.Body.String(), "provider-specific") {
+		t.Fatalf("unsafe or unhelpful normalized error: %s", response.Body.String())
 	}
 }
 
@@ -131,6 +154,52 @@ func TestCodexAppRouteUsesPathTokenAndReplacesDesktopAuthorization(t *testing.T)
 	s.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized || upstreamCalls != 1 {
 		t.Fatalf("invalid path token status=%d calls=%d", response.Code, upstreamCalls)
+	}
+}
+
+func TestCodexAppRouteDecodesZstdRequest(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "upstream-secret")
+	var upstreamBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"response-test","object":"response","status":"completed","output":[]}`)
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	body := []byte(`{"model":"coder:cloud","input":"hello","stream":false}`)
+	var compressed bytes.Buffer
+	encoder, err := zstd.NewWriter(&compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = encoder.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err = encoder.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/backpack/v1/integrations/codex-app/daemon-secret/v1/responses", bytes.NewReader(compressed.Bytes()))
+	request.Header.Set("Content-Encoding", "zstd")
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("zstd request status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !bytes.Equal(upstreamBody, body) {
+		t.Fatalf("upstream did not receive decoded request: %q", upstreamBody)
+	}
+}
+
+func TestCodexAppRouteRejectsUnknownContentEncoding(t *testing.T) {
+	s := Server{CloudProxyToken: "daemon-secret"}
+	request := httptest.NewRequest(http.MethodPost, "/api/backpack/v1/integrations/codex-app/daemon-secret/v1/responses", strings.NewReader("not-json"))
+	request.Header.Set("Content-Encoding", "br")
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "unsupported Codex App content encoding") {
+		t.Fatalf("unknown encoding status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

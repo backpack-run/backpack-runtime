@@ -180,6 +180,10 @@ func (s *Server) codexAppResponses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, fmt.Errorf("valid Codex App loopback authorization is required"))
 		return
 	}
+	if err := decodeCodexAppRequest(cloned); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	s.responses(w, cloned)
 }
 
@@ -527,6 +531,21 @@ func (s *Server) proxyCloud(w http.ResponseWriter, r *http.Request, path string,
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		if retryAfter := response.Header.Get("Retry-After"); retryAfter != "" {
+			w.Header().Set("Retry-After", retryAfter)
+		}
+		if requestID := response.Header.Get("X-Request-ID"); requestID != "" {
+			w.Header().Set("X-Request-ID", requestID)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		if readErr != nil {
+			writeError(w, http.StatusBadGateway, fmt.Errorf("read Backpack Cloud error response: %w", readErr))
+			return
+		}
+		writeError(w, response.StatusCode, cloudResponseError(response.StatusCode, data))
+		return
+	}
 	for _, name := range []string{"Content-Type", "Cache-Control", "Retry-After", "X-Request-ID"} {
 		if value := response.Header.Get(name); value != "" {
 			w.Header().Set(name, value)
@@ -553,6 +572,18 @@ func (s *Server) proxyCloud(w http.ResponseWriter, r *http.Request, path string,
 		}
 	}
 	_, _ = io.Copy(w, response.Body)
+}
+
+func cloudResponseError(status int, body []byte) error {
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) == nil && strings.TrimSpace(envelope.Error.Message) != "" {
+		return fmt.Errorf("Backpack Cloud: %s", envelope.Error.Message)
+	}
+	return fmt.Errorf("Backpack Cloud inference is unavailable (upstream HTTP %d); retry after the GPU worker becomes ready", status)
 }
 
 func cloudErrorStatus(err error) int {
