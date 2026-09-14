@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +29,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack launch <list|doctor|claude|codex|opencode> [flags] [-- tool-args]")
+		return fmt.Errorf("usage: backpack launch <list|doctor|claude|codex|codex-app|opencode> [flags] [-- tool-args]")
 	}
 	if args[0] == "list" {
 		return a.launchList(registry)
@@ -38,6 +39,9 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 			return fmt.Errorf("usage: backpack launch doctor <claude|codex|opencode> [--model model] [--compute target] [--json]")
 		}
 		return a.launchDoctor(ctx, registry, args[1], args[2:])
+	}
+	if args[0] == "codex-app" {
+		return a.launchCodexApp(ctx, args[1:])
 	}
 	descriptor, err := registry.Get(args[0])
 	if err != nil {
@@ -153,6 +157,142 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
 }
 
+func (a *app) launchCodexApp(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("launch codex-app", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	modelName := fs.String("model", "", "Backpack coding model")
+	computeName := fs.String("compute", "local", "Backpack compute target for local models")
+	contextTokens := fs.Int("context", 0, "context tokens; defaults to 65536 bounded by the model maximum")
+	restore := fs.Bool("restore", false, "restore the exact Codex App config saved before Backpack setup")
+	noOpen := fs.Bool("no-open", false, "configure or restore without opening Codex App")
+	force := fs.Bool("force", false, "run a local model even when fit recommends remote compute")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("Codex App does not accept passthrough arguments")
+	}
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		return fmt.Errorf("Codex App launch is supported on Windows and macOS")
+	}
+	configPath, err := integrations.DefaultCodexAppConfigPath()
+	if err != nil {
+		return err
+	}
+	stateDirectory, err := filepath.Abs(filepath.Join(a.paths.Config, "integrations", "codex-app"))
+	if err != nil {
+		return err
+	}
+	if *restore {
+		if *modelName != "" || *contextTokens != 0 || *computeName != "local" || *force {
+			return fmt.Errorf("--restore cannot be combined with model, context, compute, or force options")
+		}
+		if err = integrations.RestoreCodexApp(configPath, stateDirectory); err != nil {
+			return err
+		}
+		fmt.Fprintln(a.out, "Restored the Codex App configuration that was active before Backpack setup.")
+		if *noOpen {
+			return nil
+		}
+		fmt.Fprintln(a.out, "Opening Codex App. If it was already running, quit and reopen it to reload the restored configuration.")
+		return integrations.OpenCodexApp()
+	}
+	if *modelName == "" {
+		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, stdinIsTerminal())
+		if selectErr != nil {
+			return selectErr
+		}
+		*modelName = selected
+	}
+
+	var entry catalog.Model
+	desiredContext := *contextTokens
+	cloudModel := cloud.IsModel(*modelName)
+	if cloudModel {
+		if *computeName != "local" && *computeName != "cloud" {
+			return fmt.Errorf("a :cloud model cannot use compute target %q", *computeName)
+		}
+		model, resolveErr := a.cloud.ResolveModel(ctx, *modelName)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if !model.HasCapability("code") {
+			return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, "code")
+		}
+		if desiredContext == 0 {
+			desiredContext = integrations.RecommendedAgentContext
+			if model.ContextWindow > 0 && model.ContextWindow < desiredContext {
+				desiredContext = model.ContextWindow
+			}
+		}
+		if model.ContextWindow > 0 && desiredContext > model.ContextWindow {
+			return fmt.Errorf("requested context %d exceeds cloud model maximum %d", desiredContext, model.ContextWindow)
+		}
+		entry = catalog.Model{ID: model.ID, DisplayName: model.DisplayName, Capabilities: append([]string(nil), model.Capabilities...), Status: model.Status}
+	} else {
+		entry, err = a.catalog.Resolve(*modelName)
+		if err != nil {
+			return err
+		}
+		if !hasCatalogCapability(entry, "code") {
+			return fmt.Errorf("model %q does not declare the required %q capability", entry.ID, "code")
+		}
+		resolved, resolveErr := a.models.ResolvePackage(ctx, entry)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		modelContext := resolved.Manifest.Model.ContextLength
+		if desiredContext == 0 {
+			desiredContext = integrations.RecommendedAgentContext
+			if modelContext > 0 && modelContext < desiredContext {
+				desiredContext = modelContext
+			}
+		}
+		if modelContext > 0 && desiredContext > modelContext {
+			return fmt.Errorf("requested context %d exceeds model maximum %d", desiredContext, modelContext)
+		}
+	}
+
+	api, err := daemon.Ensure(ctx, a.paths, a.version)
+	if err != nil {
+		return err
+	}
+	if api.APIKey == "" {
+		return fmt.Errorf("the running Backpack daemon predates secure Codex App routing; stop it and retry so this version can start a new daemon")
+	}
+	var createdSession string
+	if !cloudModel {
+		fmt.Fprintf(a.out, "Loading %s on compute target %s...\n", entry.ID, *computeName)
+		session, createErr := api.CreateSession(ctx, clientapi.CreateSessionRequest{Model: entry.ID, Compute: *computeName, Options: clientapi.SessionOptions{ContextLength: desiredContext, GPULayers: "auto", Force: *force}})
+		if createErr != nil {
+			return createErr
+		}
+		createdSession = session.ID
+	}
+	configured := false
+	if createdSession != "" {
+		defer func() {
+			if configured {
+				return
+			}
+			stopContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			_ = api.StopSession(stopContext, createdSession)
+		}()
+	}
+	if err = integrations.ConfigureCodexApp(integrations.CodexAppOptions{ConfigPath: configPath, StateDirectory: stateDirectory, Endpoint: api.BaseURL, APIKey: api.APIKey, Model: entry, ContextTokens: desiredContext}); err != nil {
+		return err
+	}
+	configured = true
+	fmt.Fprintf(a.out, "Configured Codex App to use %s through Backpack's authenticated loopback API.\n", entry.ID)
+	fmt.Fprintln(a.out, "Your Codex authentication file was not read or modified. Restore with: backpack launch codex-app --restore")
+	if *noOpen {
+		return nil
+	}
+	fmt.Fprintln(a.out, "Opening Codex App. If it was already running, quit and reopen it so the new model catalog is loaded.")
+	return integrations.OpenCodexApp()
+}
+
 func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Descriptor, modelName, computeName string, contextTokens int, keepAlive, force bool, passthrough []string) error {
 	if computeName != "local" && computeName != "cloud" {
 		return fmt.Errorf("a :cloud model cannot use compute target %q", computeName)
@@ -239,6 +379,11 @@ func (a *app) launchList(registry *integrations.Registry) error {
 		}
 		fmt.Fprintf(a.out, "%-12s %-12s %s\n", descriptor.ID, descriptor.DisplayName, status)
 	}
+	status := "supported on Windows/macOS"
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		status = "unsupported on this platform"
+	}
+	fmt.Fprintf(a.out, "%-12s %-12s %s\n", "codex-app", "Codex App", status)
 	return nil
 }
 

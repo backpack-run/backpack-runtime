@@ -6,6 +6,7 @@ Backpack can configure and start an installed third-party coding agent while ret
 backpack launch list
 backpack launch doctor codex --model qwen3-coder-next
 backpack launch codex --model qwen3-coder-next
+backpack launch codex-app --model qwen3-coder-next
 backpack launch claude --model qwen3-coder-next
 backpack launch opencode --model qwen3-coder-next
 ```
@@ -15,6 +16,7 @@ Private-alpha Cloud models are selected with their live `:cloud` ID after `backp
 ```console
 backpack cloud models
 backpack launch codex --model qwen3-coder-30b-a3b-instruct:cloud
+backpack launch codex-app --model qwen3-coder-30b-a3b-instruct:cloud
 ```
 
 The launch feature is experimental. The compatibility protocols and the installed Codex executable have passed isolated protocol/tool-loop tests. Qwen3-Coder 30B A3B has also passed real llama.cpp inference and a Backpack API tool-result continuation. A combined real-model Codex run loaded at 32K context, connected to Codex 0.154, and requested shell/edit tools, but this nested qualification environment enforced `read-only` and rejected execution. No security control was bypassed, so the final external-agent file/edit gate remains pending. Claude Code and OpenCode were not installed on the qualification host.
@@ -31,10 +33,12 @@ backpack launch codex --model qwen3-coder-next -- --help
 
 Backpack does not install external agents automatically. Missing tools produce official installation guidance. `--keep-alive` retains the model session after the agent exits; otherwise Backpack requests a graceful session stop.
 
+Codex App is the exception to the child-only launch model. `backpack launch codex-app` writes a persistent, narrowly scoped desktop configuration and opens the installed Windows/macOS app. It accepts no passthrough arguments. Run `backpack launch codex-app --restore` to restore the exact pre-Backpack configuration; `--no-open` performs either operation without opening the app. If Codex App is already running, quit and reopen it to load the change.
+
 ## Security boundary
 
 Backpack configures provider routing, model selection, and an isolated configuration directory. It does not weaken Codex/OpenCode sandbox and approval settings or Claude Code permissions, and never adds permission-bypass flags. Tool execution, workspace access, and user approvals remain owned by the launched agent.
 
-Provider tokens are random per-daemon values scoped to the child process and redacted from diagnostics. Cloud credentials remain in the runtime process and are never passed to the third-party agent. Cloud proxy routes validate the per-daemon bearer token even on loopback. The Runtime API remains loopback-only and is not a remotely authenticated service.
+Provider tokens are random per-daemon values and redacted from diagnostics. CLI integrations receive them only in the child process. Codex App receives an unguessable token as part of a Backpack-only loopback route because the desktop app retains its normal authentication header; the route replaces that header before Cloud forwarding. Cloud credentials remain in the runtime process and are never passed to a third-party agent. The Runtime API remains loopback-only and is not a remotely authenticated service.
 
 See the integration-specific documents and protocol subset documents for limitations.

@@ -79,6 +79,36 @@ func TestCloudProxyRejectsUnauthenticatedLocalRequest(t *testing.T) {
 	}
 }
 
+func TestCodexAppRouteUsesPathTokenAndReplacesDesktopAuthorization(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "upstream-secret")
+	upstreamCalls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		if r.Header.Get("Authorization") != "Bearer upstream-secret" {
+			t.Errorf("desktop authorization reached Cloud: %q", r.Header.Get("Authorization"))
+		}
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	body := `{"model":"coder:cloud","input":"hello"}`
+
+	request := httptest.NewRequest(http.MethodPost, "/api/backpack/v1/integrations/codex-app/daemon-secret/v1/responses", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer existing-codex-login")
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != `{"ok":true}` || upstreamCalls != 1 {
+		t.Fatalf("authorized route status=%d calls=%d body=%s", response.Code, upstreamCalls, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/backpack/v1/integrations/codex-app/wrong-token/v1/responses", strings.NewReader(body))
+	response = httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || upstreamCalls != 1 {
+		t.Fatalf("invalid path token status=%d calls=%d", response.Code, upstreamCalls)
+	}
+}
+
 func TestModelsDoNotFailWhenCloudIsLoggedOut(t *testing.T) {
 	t.Setenv("BACKPACK_API_KEY", "")
 	paths := config.NewPaths(t.TempDir())

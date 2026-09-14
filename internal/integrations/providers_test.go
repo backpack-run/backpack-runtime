@@ -95,7 +95,7 @@ func TestWriteCodexModelCatalogUsesTrustedMetadata(t *testing.T) {
 	if len(payload.Models) != 1 || payload.Models[0].Slug != "coder" || payload.Models[0].ContextWindow != 131072 || len(payload.Models[0].InputModalities) != 2 || payload.Models[0].ParallelToolCalls {
 		t.Fatalf("unexpected catalog %s", data)
 	}
-	if !strings.Contains(payload.Models[0].BaseInstructions, "call the appropriate tool") || !strings.Contains(payload.Models[0].BaseInstructions, "never claim an action succeeded") {
+	if !strings.Contains(payload.Models[0].BaseInstructions, "call the appropriate tool") || !strings.Contains(payload.Models[0].BaseInstructions, "Keep inspection commands bounded") || !strings.Contains(payload.Models[0].BaseInstructions, "never claim an action succeeded") {
 		t.Fatalf("catalog does not provide an agent tool-use contract: %s", data)
 	}
 }

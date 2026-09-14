@@ -80,23 +80,7 @@ func (s *Server) Handler() http.Handler {
 		write(w, 200, installed)
 	})
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
-		installed, err := s.Models.List()
-		if err != nil {
-			writeError(w, 500, err)
-			return
-		}
-		data := make([]map[string]any, 0, len(installed))
-		for _, m := range installed {
-			data = append(data, map[string]any{"id": m.ID, "object": "model", "owned_by": "backpack-run"})
-		}
-		if s.Cloud != nil && s.cloudAuthorized(r) {
-			if cloudModels, cloudErr := s.Cloud.Models(r.Context()); cloudErr == nil {
-				for _, model := range cloudModels {
-					data = append(data, map[string]any{"id": model.ID, "object": "model", "owned_by": model.OwnedBy, "display_name": model.DisplayName, "capabilities": model.Capabilities, "context_window": model.ContextWindow, "status": model.Status})
-				}
-			}
-		}
-		write(w, 200, map[string]any{"object": "list", "data": data})
+		s.openAIModels(w, r)
 	})
 	mux.HandleFunc("GET /api/backpack/v1/cloud/models", func(w http.ResponseWriter, r *http.Request) {
 		if s.Cloud == nil {
@@ -136,6 +120,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/backpack/v1/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
 	mux.HandleFunc("POST /v1/responses", s.responses)
+	mux.HandleFunc("GET /api/backpack/v1/integrations/codex-app/{token}/v1/models", s.codexAppModels)
+	mux.HandleFunc("POST /api/backpack/v1/integrations/codex-app/{token}/v1/responses", s.codexAppResponses)
 	mux.HandleFunc("POST /v1/messages", s.anthropicMessages)
 	mux.HandleFunc("POST /v1/audio/transcriptions", s.transcriptions)
 	mux.HandleFunc("POST /v1/audio/speech", s.speech)
@@ -146,6 +132,55 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/backpack/v1/jobs/{id}", s.cancelJob)
 	mux.HandleFunc("GET /api/backpack/v1/jobs/{id}/artifacts/{artifact}", s.getArtifact)
 	return security(mux)
+}
+
+func (s *Server) openAIModels(w http.ResponseWriter, r *http.Request) {
+	installed, err := s.Models.List()
+	if err != nil {
+		writeError(w, 500, err)
+		return
+	}
+	data := make([]map[string]any, 0, len(installed))
+	for _, m := range installed {
+		data = append(data, map[string]any{"id": m.ID, "object": "model", "owned_by": "backpack-run"})
+	}
+	if s.Cloud != nil && s.cloudAuthorized(r) {
+		if cloudModels, cloudErr := s.Cloud.Models(r.Context()); cloudErr == nil {
+			for _, model := range cloudModels {
+				data = append(data, map[string]any{"id": model.ID, "object": "model", "owned_by": model.OwnedBy, "display_name": model.DisplayName, "capabilities": model.Capabilities, "context_window": model.ContextWindow, "status": model.Status})
+			}
+		}
+	}
+	write(w, 200, map[string]any{"object": "list", "data": data})
+}
+
+func (s *Server) codexAppModels(w http.ResponseWriter, r *http.Request) {
+	authorized, cloned := s.authorizeCodexAppRequest(r)
+	if !authorized {
+		writeError(w, http.StatusUnauthorized, fmt.Errorf("valid Codex App loopback authorization is required"))
+		return
+	}
+	s.openAIModels(w, cloned)
+}
+
+func (s *Server) codexAppResponses(w http.ResponseWriter, r *http.Request) {
+	authorized, cloned := s.authorizeCodexAppRequest(r)
+	if !authorized {
+		writeError(w, http.StatusUnauthorized, fmt.Errorf("valid Codex App loopback authorization is required"))
+		return
+	}
+	s.responses(w, cloned)
+}
+
+func (s *Server) authorizeCodexAppRequest(r *http.Request) (bool, *http.Request) {
+	provided := r.PathValue("token")
+	if s.CloudProxyToken == "" || len(provided) != len(s.CloudProxyToken) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.CloudProxyToken)) != 1 {
+		return false, nil
+	}
+	cloned := r.Clone(r.Context())
+	cloned.Header = r.Header.Clone()
+	cloned.Header.Set("Authorization", "Bearer "+s.CloudProxyToken)
+	return true, cloned
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, _ *http.Request) {

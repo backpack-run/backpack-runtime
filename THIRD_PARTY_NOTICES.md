@@ -2,6 +2,8 @@
 
 Backpack Runtime source is Apache-2.0. Managed runtime bundles and model packages retain their own licenses.
 
+The compiled CLI includes [go-toml](https://github.com/pelletier/go-toml), licensed under MIT, for validating Codex App configuration without executing or interpreting it as code.
+
 The built-in runtime catalog currently references:
 
 - [llama.cpp](https://github.com/ggml-org/llama.cpp), licensed under MIT. Backpack installs its pinned upstream license alongside the runtime.

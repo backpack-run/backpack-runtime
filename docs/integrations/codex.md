@@ -1,5 +1,7 @@
 # Codex CLI integration
 
+For persistent desktop-app configuration, see [Codex App](codex-app.md). The CLI and desktop launch paths are intentionally separate.
+
 `backpack launch codex` detects the real `codex` executable on `PATH`, ensures a Backpack model session, and starts Codex with a child-only Backpack provider.
 
 The provider uses a loopback `/v1/` base URL and the Responses wire API. Backpack generates a minimal model catalog from trusted catalog/package metadata. `CODEX_HOME` points to a Backpack-owned integration directory for this process, and provider/model settings are supplied as highest-precedence command-line configuration. Normal Codex configuration, login state, history, and provider selection are not overwritten.
