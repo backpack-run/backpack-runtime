@@ -1,6 +1,8 @@
 # Compute targets
 
-A compute target answers where work runs; it does not know model families. Local execution implements hardware inspection and managed process launch. SSH implements saved configuration, strict known-host verification, hardware probing, checksum-aware model/runtime/input synchronization, remote loopback launch, and local forwarding. `compute test` and `compute doctor` perform the same real readiness probe, including a small transfer/checksum test. Native job commands do not open unnecessary tunnels. Managed Backpack Compute remains an explicit unimplemented boundary.
+A compute target answers where work runs; it does not know model families. Local execution implements hardware inspection and managed process launch. SSH implements saved configuration, strict known-host verification, hardware probing, checksum-aware model/runtime/input synchronization, remote loopback launch, and local forwarding. `compute test` and `compute doctor` perform the same real readiness probe, including a small transfer/checksum test. Native job commands do not open unnecessary tunnels. Neither local nor SSH execution requires a Backpack account.
+
+Managed Backpack Cloud remains an explicit unimplemented target boundary. It will require optional Backpack authentication and current server-side entitlement when introduced; those requirements must never propagate to local or user-owned SSH targets. The private-preview `:cloud` model path is temporary compatibility behavior, not the final target abstraction.
 
 Large transfers prefer rsync with partial-file resume and fall back to explicitly non-resumable SCP. Final files are checksum verified remotely and atomically renamed; interrupted `.part` files can be reused by a later rsync attempt.
 

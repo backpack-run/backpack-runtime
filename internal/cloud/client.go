@@ -51,13 +51,21 @@ func (m Model) HasCapability(want string) bool {
 }
 
 type Client struct {
-	BaseURL string
-	HTTP    *http.Client
-	Store   *CredentialStore
+	BaseURL  string
+	HTTP     *http.Client
+	Store    *CredentialStore
+	setupErr error
 
 	mu          sync.Mutex
 	accessToken string
 	expiresAt   time.Time
+}
+
+// Unavailable returns a Cloud client that keeps local credential operations
+// usable while refusing network operations with the original configuration
+// error. Optional Cloud configuration must not prevent OSS runtime startup.
+func Unavailable(paths config.Paths, err error) *Client {
+	return &Client{BaseURL: DefaultBaseURL, Store: NewCredentialStore(paths), setupErr: err}
 }
 
 func New(paths config.Paths) (*Client, error) {
@@ -121,6 +129,9 @@ type deviceStatusResponse struct {
 }
 
 func (c *Client) Login(ctx context.Context, name string, prompt func(LoginPrompt) error) error {
+	if err := c.ready(); err != nil {
+		return err
+	}
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return fmt.Errorf("generate device key: %w", err)
@@ -206,6 +217,9 @@ func verificationURL(raw, code string) (string, error) {
 }
 
 func (c *Client) AuthStatus() (source string, deviceKeyID string, err error) {
+	if err = c.ready(); err != nil {
+		return "invalid", "", err
+	}
 	if strings.TrimSpace(os.Getenv("BACKPACK_API_KEY")) != "" {
 		return "api-key-environment", "", nil
 	}
@@ -287,6 +301,9 @@ func (c *Client) Inference(ctx context.Context, path string, body []byte, header
 }
 
 func (c *Client) doAuthenticated(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := c.ready(); err != nil {
+		return nil, err
+	}
 	token, err := c.token(ctx)
 	if err != nil {
 		return nil, err
@@ -354,6 +371,9 @@ func (c *Client) token(ctx context.Context) (string, error) {
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, input, output any) error {
+	if err := c.ready(); err != nil {
+		return err
+	}
 	data, err := json.Marshal(input)
 	if err != nil {
 		return err
@@ -386,6 +406,12 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
+	switch e.Type {
+	case "private_access_required":
+		return "Backpack Cloud isn't available for this account yet.\n\nCloud is currently in private preview.\nYou can use Backpack locally or with your own remote compute without signing in.\n\nLearn more: https://backpack.run/cloud"
+	case "cloud_access_required":
+		return "Backpack Cloud compute isn't available for this account yet.\n\nCloud is currently in private preview.\nYou can use Backpack locally or with your own remote compute without signing in.\n\nLearn more: https://backpack.run/cloud"
+	}
 	message := fmt.Sprintf("Backpack Cloud returned HTTP %d", e.StatusCode)
 	if e.Type != "" {
 		message += " (" + e.Type + ")"
@@ -397,6 +423,16 @@ func (e *APIError) Error() string {
 		message += " [request " + e.RequestID + "]"
 	}
 	return message
+}
+
+func (c *Client) ready() error {
+	if c == nil {
+		return fmt.Errorf("Backpack Cloud is unavailable")
+	}
+	if c.setupErr != nil {
+		return c.setupErr
+	}
+	return nil
 }
 
 func responseError(response *http.Response) error {

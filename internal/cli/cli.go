@@ -68,7 +68,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 	}
 	cloudClient, err := cloud.New(paths)
 	if err != nil {
-		return err
+		cloudClient = cloud.Unavailable(paths, err)
 	}
 	llama := &llamacpp.Adapter{Paths: paths, Runtimes: runtimes}
 	whisper := &whispercpp.Adapter{Paths: paths, Runtimes: runtimes}
@@ -155,7 +155,7 @@ func (a *app) commandHelp(command string) error {
 		"hardware":   "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
 		"run":        "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
 		"launch":     "Usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode> [options] [-- tool-args]\n\nExperimental: launches coding agents through Backpack. App setup is persistent; restore it with `backpack launch <codex-app|claude-app> --restore`.\n",
-		"login":      "Usage: backpack login [--name device-name] [--no-browser]\n\nAuthorize this device for Backpack Cloud without storing a password or long-lived access token.\n",
+		"login":      "Usage: backpack login [--name device-name] [--no-browser]\n\nOptionally authorize this device for Backpack Cloud. Open-source Backpack requires no account.\n",
 		"logout":     "Usage: backpack logout\n\nRemove the local Backpack Cloud device credential.\n",
 		"cloud":      "Usage: backpack cloud <status|models> [--json]\n\nInspect Backpack Cloud authentication and live model availability.\n",
 		"transcribe": "Usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target] [--force]\n",
@@ -194,7 +194,7 @@ Usage: backpack <command>
   hardware                inspect local compute
   run <model> [flags]     create an API-owned session and chat
   launch <integration>    launch an external coding agent through Backpack (experimental)
-  login                   authorize this device for Backpack Cloud
+  login                   optionally authorize this device for Backpack Cloud
   logout                  remove the local Backpack Cloud credential
   cloud <command>         inspect Cloud authentication and live models
   transcribe <audio>      transcribe audio through the runtime API

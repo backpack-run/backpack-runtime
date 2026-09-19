@@ -1,6 +1,8 @@
 # Backpack Cloud
 
-Backpack Runtime can route supported `:cloud` models through the hosted Backpack API while keeping the CLI and coding-agent integrations on the same local loopback API. Cloud availability is discovered from `GET https://api.backpack.run/v1/models`; it is not duplicated in the local catalog.
+Backpack Cloud is a separate optional managed product currently in private preview. Open-source Backpack Runtime requires no account for its public catalog, model installation, local execution, local API, SSH/user-owned compute, or local coding-agent integrations. Those paths do not contact Cloud and remain usable when `backpack.run` is unavailable.
+
+The private-preview compatibility path can route hosted models through the same local loopback API. Availability is discovered from `GET https://api.backpack.run/v1/models`; it is not duplicated into the OSS catalog.
 
 ## Sign in
 
@@ -14,13 +16,15 @@ backpack cloud models
 
 The CLI creates an Ed25519 key locally, opens the verification page, and signs short-lived challenges after approval. The private key never leaves the device. Access tokens remain in memory and are renewed with another signed challenge. Windows protects the key with user-scoped DPAPI. Linux and macOS use a private `0600` file until native keychain integrations are added.
 
+The command first explains that login is optional and Cloud-only. The Cloud backend remains the sole authority for private-preview admission and managed-compute entitlement. Runtime contains no identity allowlist and does not infer access from an email address or locally cached plan.
+
 For non-interactive automation, set `BACKPACK_API_KEY` in the process environment. Do not put keys in command arguments, source control, logs, or shared shell profiles. The environment variable takes precedence over a saved device credential.
 
 `backpack logout` deletes the local device credential. It cannot unset a parent shell's `BACKPACK_API_KEY`; remove that separately. Revoke the device in the Backpack account to invalidate it server-side.
 
 ## Cloud models and coding agents
 
-Always use an ID reported by `backpack cloud models`. At this release, the qualified available model is:
+The existing hosted API still reports transitional `:cloud` IDs. Always use an ID returned by `backpack cloud models`; Runtime does not invent or silently map one. At this release, the qualified available model is:
 
 ```text
 qwen3-coder-30b-a3b-instruct:cloud
@@ -51,3 +55,18 @@ The runtime remains loopback-only. Cloud proxy routes additionally require a ran
 `BACKPACK_CLOUD_URL` exists for development and private deployments. It accepts HTTPS endpoints, or loopback HTTP for tests; credentials are never sent to arbitrary cleartext hosts. Diagnostics report only whether authentication is configured and its source, never key material or access tokens.
 
 Cloud is private alpha. Models, pricing, qualification, and availability may change independently of a runtime release. The live `/v1/models` response is authoritative.
+
+## Model and target direction
+
+The durable architecture keeps the concerns separate:
+
+```text
+model   = what runs
+runtime = how it runs
+target  = where it runs
+launch  = what consumes it
+```
+
+Local and SSH targets require no Backpack account. A future `cloud` target will require Backpack authentication and current server-side entitlement. The current `:cloud` IDs remain only for private-preview compatibility until the Cloud catalog exposes a safe model-to-target contract; removing them in Runtime alone would require an unsafe hard-coded mapping. No new feature should depend on suffix-based identity.
+
+An `account` CLI command is intentionally deferred. The current account profile endpoint accepts a browser identity token, whereas Runtime stores a device credential for inference. Runtime will not misuse one credential type as the other or display internal entitlement fields. A future device-safe account endpoint may expose only product language such as plan and Cloud availability.

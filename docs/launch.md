@@ -12,7 +12,7 @@ backpack launch claude-app --model qwen3-coder-next
 backpack launch opencode --model qwen3-coder-next
 ```
 
-Private-alpha Cloud models are selected with their live `:cloud` ID after `backpack login`:
+Local and SSH launch paths require no Backpack login. The current optional private-preview Cloud compatibility path is selected with a live API-reported `:cloud` ID after `backpack login`:
 
 ```console
 backpack cloud models
@@ -22,6 +22,8 @@ backpack launch claude --model qwen3-coder-30b-a3b-instruct:cloud
 backpack launch claude-app --model qwen3-coder-30b-a3b-instruct:cloud
 backpack launch opencode --model qwen3-coder-30b-a3b-instruct:cloud
 ```
+
+The suffix is transitional and is not the intended durable model identity. The future design selects the same model independently from a `cloud` target after the Cloud API publishes a safe mapping contract. No new integration should infer hosted execution from a fabricated suffix or hard-code a correspondence between OSS and hosted model names.
 
 The launch feature is experimental. The compatibility protocols and the installed Codex executable have passed isolated protocol/tool-loop tests. Qwen3-Coder 30B A3B has also passed real llama.cpp inference and a Backpack API tool-result continuation. A combined real-model Codex run loaded at 32K context, connected to Codex 0.154, and requested shell/edit tools, but this nested qualification environment enforced `read-only` and rejected execution. No security control was bypassed, so the final external-agent file/edit gate remains pending. Claude Code and OpenCode were not installed on the qualification host.
 

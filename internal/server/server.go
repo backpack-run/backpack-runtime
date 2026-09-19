@@ -722,11 +722,12 @@ func proxyLegacyInferenceStream(w io.Writer, flusher http.Flusher, source io.Rea
 func cloudResponseError(status int, body []byte) error {
 	var envelope struct {
 		Error struct {
+			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if json.Unmarshal(body, &envelope) == nil && strings.TrimSpace(envelope.Error.Message) != "" {
-		return fmt.Errorf("Backpack Cloud: %s", envelope.Error.Message)
+	if json.Unmarshal(body, &envelope) == nil && (strings.TrimSpace(envelope.Error.Type) != "" || strings.TrimSpace(envelope.Error.Message) != "") {
+		return &cloud.APIError{StatusCode: status, Type: strings.TrimSpace(envelope.Error.Type), Message: strings.TrimSpace(envelope.Error.Message)}
 	}
 	return fmt.Errorf("Backpack Cloud inference is unavailable (upstream HTTP %d); retry after the GPU worker becomes ready", status)
 }

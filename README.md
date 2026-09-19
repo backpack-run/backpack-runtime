@@ -66,7 +66,9 @@ backpack launch claude-app --model qwen3-coder-next
 backpack launch opencode --model qwen3-coder-next
 ```
 
-Backpack Cloud private-alpha models use the same launch path and are discovered live rather than hard-coded:
+Backpack Runtime does not require an account. Public model discovery, pull, local inference, the local API, SSH compute, and local coding-agent launches continue to work when Backpack Cloud is unreachable.
+
+Backpack Cloud is a separate, optional managed product currently in private preview. `backpack login` is needed only when deliberately testing that service:
 
 ```console
 backpack login
@@ -78,7 +80,7 @@ backpack launch claude-app --model qwen3-coder-30b-a3b-instruct:cloud
 backpack launch opencode --model qwen3-coder-30b-a3b-instruct:cloud
 ```
 
-Use only an ID returned by `backpack cloud models`; `qwen3-coder-next:cloud` is not currently available and is not mapped to a different model. See [Backpack Cloud](docs/cloud.md) for device-key storage, API-key automation, and security boundaries.
+The displayed `:cloud` IDs are a transitional private-preview API contract, not the long-term model identity design. The intended architecture selects a model independently from a `cloud` target. No name is silently mapped to a different hosted model. See [Backpack Cloud](docs/cloud.md) for the current compatibility path, device-key storage, and security boundaries.
 
 `codex-app` persistently adds the selected Backpack model alongside the native models available to the installed Codex desktop app on Windows or macOS. Native entries remain routed to OpenAI/ChatGPT; the Backpack entry is routed separately through Backpack's authenticated loopback service. It preserves the user's existing authentication and config in a private backup; restore the previous profile with `backpack launch codex-app --restore`. This integration is experimental and requires restarting Codex App when it is already open. See [Codex App integration](docs/integrations/codex-app.md).
 

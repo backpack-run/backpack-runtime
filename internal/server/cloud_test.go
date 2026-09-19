@@ -145,6 +145,28 @@ func TestCloudProxyRejectsUnauthenticatedLocalRequest(t *testing.T) {
 	}
 }
 
+func TestCloudProxyTranslatesEntitlementFailure(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "upstream-secret")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":{"type":"cloud_access_required","message":"internal entitlement state"}}`)
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"coder:cloud","input":"hello"}`))
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "private preview") || !strings.Contains(response.Body.String(), "use Backpack locally") {
+		t.Fatalf("unexpected product error: status=%d body=%s", response.Code, response.Body.String())
+	}
+	for _, leaked := range []string{"cloud_access_required", "internal entitlement state"} {
+		if strings.Contains(response.Body.String(), leaked) {
+			t.Fatalf("backend detail %q leaked: %s", leaked, response.Body.String())
+		}
+	}
+}
+
 func TestDaemonShutdownRequiresLocalAuthorization(t *testing.T) {
 	stopped := make(chan struct{}, 1)
 	s := Server{CloudProxyToken: "daemon-secret", shutdown: func() { stopped <- struct{}{} }}

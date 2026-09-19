@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -207,6 +209,57 @@ func TestAuthenticatedRequestsRejectRedirects(t *testing.T) {
 	}
 	if targetCalls != 0 {
 		t.Fatal("authenticated request followed a redirect")
+	}
+}
+
+func TestPrivatePreviewErrorsUseProductLanguage(t *testing.T) {
+	for _, test := range []struct {
+		kind string
+		want string
+	}{
+		{kind: "private_access_required", want: "isn't available for this account yet"},
+		{kind: "cloud_access_required", want: "compute isn't available for this account yet"},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
+			t.Setenv("BACKPACK_API_KEY", "test-api-key")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = io.WriteString(w, `{"error":{"type":"`+test.kind+`","message":"internal entitlement detail"}}`)
+			}))
+			defer server.Close()
+			client := testClient(t, server.URL)
+			_, err := client.Models(context.Background())
+			if err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), "use Backpack locally") {
+				t.Fatalf("unexpected product error: %v", err)
+			}
+			for _, leaked := range []string{"internal entitlement detail", "HTTP 403", test.kind} {
+				if strings.Contains(err.Error(), leaked) {
+					t.Fatalf("backend detail %q leaked through product error: %v", leaked, err)
+				}
+			}
+		})
+	}
+}
+
+func TestUnavailableClientStillAllowsLogout(t *testing.T) {
+	paths := config.NewPaths(t.TempDir())
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewCredentialStore(paths)
+	if err = store.Save(Credentials{DeviceKeyID: "123e4567-e89b-12d3-a456-426614174000", PrivateKey: privateKey}); err != nil {
+		t.Fatal(err)
+	}
+	client := Unavailable(paths, fmt.Errorf("invalid optional cloud configuration"))
+	if err = client.Logout(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Load(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("logout did not remove the Cloud-only credential: %v", err)
+	}
+	if _, err = client.Models(context.Background()); err == nil || !strings.Contains(err.Error(), "invalid optional cloud configuration") {
+		t.Fatalf("unavailable client attempted Cloud access: %v", err)
 	}
 }
 

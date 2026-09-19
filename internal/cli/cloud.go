@@ -31,8 +31,13 @@ func (a *app) login(ctx context.Context, args []string) error {
 		}
 		*name = hostname
 	}
-	return a.cloud.Login(ctx, *name, func(prompt cloud.LoginPrompt) error {
-		fmt.Fprintf(a.out, "Authorize Backpack Cloud in your browser.\nCode: %s\nURL:  %s\n", prompt.UserCode, prompt.VerificationURL)
+	fmt.Fprintln(a.out, "Backpack Cloud is currently in private preview.")
+	fmt.Fprintln(a.out)
+	fmt.Fprintln(a.out, "Open-source Backpack does not require an account.")
+	fmt.Fprintln(a.out, "Login is only needed for Backpack Cloud.")
+	fmt.Fprintln(a.out)
+	err := a.cloud.Login(ctx, *name, func(prompt cloud.LoginPrompt) error {
+		fmt.Fprintf(a.out, "Opening browser to sign in...\nCode: %s\nURL:  %s\n", prompt.UserCode, prompt.VerificationURL)
 		if !*noBrowser {
 			if err := openBrowser(prompt.VerificationURL); err != nil {
 				fmt.Fprintf(a.err, "Could not open the browser automatically: %v\n", err)
@@ -41,6 +46,11 @@ func (a *app) login(ctx context.Context, args []string) error {
 		fmt.Fprintln(a.out, "Waiting for approval...")
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.out, "Signed in to Backpack Cloud private preview.")
+	return nil
 }
 
 func (a *app) logout(args []string) error {
