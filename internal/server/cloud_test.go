@@ -56,7 +56,7 @@ func TestCloudStreamingIsForwardedWithoutBufferingContractChanges(t *testing.T) 
 		flusher := w.(http.Flusher)
 		_, _ = io.WriteString(w, "event: response.output_text.delta\ndata: {\"delta\":\"ok\"}\n\n")
 		flusher.Flush()
-		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\ndata: [DONE]\n\n")
 	}))
 	defer upstream.Close()
 	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
@@ -66,6 +66,48 @@ func TestCloudStreamingIsForwardedWithoutBufferingContractChanges(t *testing.T) 
 	s.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "response.output_text.delta") || !strings.Contains(response.Body.String(), "[DONE]") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestCloudResponsesStreamEndsWithExplicitFailureWhenUpstreamDisconnects(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "test-stream-key")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("X-Request-ID", "request-123")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"coder:cloud","input":"hello","stream":true}`))
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	s.Handler().ServeHTTP(response, request)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, "response.failed") || !strings.Contains(body, "upstream_stream_terminated") || !strings.Contains(body, "request-123") {
+		t.Fatalf("status=%d body=%s", response.Code, body)
+	}
+	if strings.Contains(body, "response.completed") {
+		t.Fatalf("interrupted stream was incorrectly marked complete: %s", body)
+	}
+}
+
+func TestCloudLegacyStreamsEndWithProtocolErrorsWhenUpstreamDisconnects(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "test-stream-key")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"partial\":true}\n\n")
+	}))
+	defer upstream.Close()
+	for _, test := range []struct{ path, marker string }{{"/v1/messages", "event: error"}, {"/v1/chat/completions", "upstream_stream_terminated"}} {
+		s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+		response := httptest.NewRecorder()
+		body := `{"model":"coder:cloud","messages":[],"max_tokens":1,"stream":true}`
+		request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer daemon-secret")
+		s.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), test.marker) {
+			t.Fatalf("path=%s status=%d body=%s", test.path, response.Code, response.Body.String())
+		}
 	}
 }
 

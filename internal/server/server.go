@@ -135,6 +135,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/responses", s.responses)
 	mux.HandleFunc("GET /api/backpack/v1/integrations/codex-app/{token}/v1/models", s.codexAppModels)
 	mux.HandleFunc("POST /api/backpack/v1/integrations/codex-app/{token}/v1/responses", s.codexAppResponses)
+	mux.HandleFunc("GET /api/backpack/v1/integrations/claude-app/{token}/{context}/{model}/v1/models", s.claudeAppModels)
+	mux.HandleFunc("POST /api/backpack/v1/integrations/claude-app/{token}/{context}/{model}/v1/messages/count_tokens", s.claudeAppCountTokens)
+	mux.HandleFunc("POST /api/backpack/v1/integrations/claude-app/{token}/{context}/{model}/v1/messages", s.claudeAppMessages)
 	mux.HandleFunc("POST /v1/messages", s.anthropicMessages)
 	mux.HandleFunc("POST /v1/audio/transcriptions", s.transcriptions)
 	mux.HandleFunc("POST /v1/audio/speech", s.speech)
@@ -598,6 +601,14 @@ func (s *Server) proxyCloud(w http.ResponseWriter, r *http.Request, path string,
 		if !ok {
 			return
 		}
+		if path == "/v1/responses" {
+			proxyResponsesStream(w, flusher, response.Body, response.Header.Get("X-Request-ID"))
+			return
+		}
+		if path == "/v1/messages" || path == "/v1/chat/completions" {
+			proxyLegacyInferenceStream(w, flusher, response.Body, path, response.Header.Get("X-Request-ID"))
+			return
+		}
 		buffer := make([]byte, 32<<10)
 		for {
 			n, readErr := response.Body.Read(buffer)
@@ -613,6 +624,99 @@ func (s *Server) proxyCloud(w http.ResponseWriter, r *http.Request, path string,
 		}
 	}
 	_, _ = io.Copy(w, response.Body)
+}
+
+// proxyResponsesStream preserves upstream bytes but guarantees that an
+// unexpectedly terminated Responses stream ends with an explicit failure
+// event. Codex otherwise reports only "stream closed before
+// response.completed", hiding whether the GPU worker crashed or disconnected.
+// This never manufactures a successful completion.
+func proxyResponsesStream(w io.Writer, flusher http.Flusher, source io.Reader, requestID string) {
+	buffer := make([]byte, 32<<10)
+	tail := ""
+	terminal := false
+	for {
+		n, readErr := source.Read(buffer)
+		if n > 0 {
+			chunk := buffer[:n]
+			probe := tail + string(chunk)
+			if strings.Contains(probe, "event: response.completed") || strings.Contains(probe, "event: response.failed") || strings.Contains(probe, "event: response.incomplete") {
+				terminal = true
+			}
+			if len(probe) > 256 {
+				tail = probe[len(probe)-256:]
+			} else {
+				tail = probe
+			}
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	if terminal {
+		return
+	}
+	id := newProtocolID("resp")
+	message := "Backpack Cloud closed the stream before completion; retry after the GPU worker is ready"
+	if strings.TrimSpace(requestID) != "" {
+		message += " (request " + strings.TrimSpace(requestID) + ")"
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"type": "response.failed",
+		"response": map[string]any{
+			"id": id, "object": "response", "status": "failed",
+			"error": map[string]string{"type": "server_error", "code": "upstream_stream_terminated", "message": message},
+		},
+	})
+	_, _ = fmt.Fprintf(w, "event: response.failed\ndata: %s\n\n", payload)
+	flusher.Flush()
+}
+
+func proxyLegacyInferenceStream(w io.Writer, flusher http.Flusher, source io.Reader, path, requestID string) {
+	buffer := make([]byte, 32<<10)
+	tail := ""
+	terminal := false
+	for {
+		n, readErr := source.Read(buffer)
+		if n > 0 {
+			chunk := buffer[:n]
+			probe := tail + string(chunk)
+			if (path == "/v1/messages" && strings.Contains(probe, "event: message_stop")) || (path == "/v1/chat/completions" && strings.Contains(probe, "data: [DONE]")) {
+				terminal = true
+			}
+			if len(probe) > 256 {
+				tail = probe[len(probe)-256:]
+			} else {
+				tail = probe
+			}
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	if terminal {
+		return
+	}
+	message := "Backpack Cloud closed the stream before completion; retry after the GPU worker is ready"
+	if strings.TrimSpace(requestID) != "" {
+		message += " (request " + strings.TrimSpace(requestID) + ")"
+	}
+	if path == "/v1/messages" {
+		payload, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": "api_error", "message": message}})
+		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
+	} else {
+		payload, _ := json.Marshal(map[string]any{"error": map[string]string{"type": "server_error", "code": "upstream_stream_terminated", "message": message}})
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+	}
+	flusher.Flush()
 }
 
 func cloudResponseError(status int, body []byte) error {

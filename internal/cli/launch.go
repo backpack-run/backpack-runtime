@@ -29,7 +29,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack launch <list|doctor|claude|codex|codex-app|opencode> [flags] [-- tool-args]")
+		return fmt.Errorf("usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode> [flags] [-- tool-args]")
 	}
 	if args[0] == "list" {
 		return a.launchList(registry)
@@ -43,6 +43,9 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	if args[0] == "codex-app" {
 		return a.launchCodexApp(ctx, args[1:])
 	}
+	if args[0] == "claude-app" || args[0] == "claude-desktop" {
+		return a.launchClaudeApp(ctx, args[1:])
+	}
 	descriptor, err := registry.Get(args[0])
 	if err != nil {
 		return err
@@ -51,7 +54,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	fs.SetOutput(a.err)
 	modelName := fs.String("model", "", "Backpack coding model")
 	computeName := fs.String("compute", "local", "Backpack compute target")
-	contextTokens := fs.Int("context", 0, "context tokens; defaults to the integration recommendation bounded by the model maximum")
+	contextTokens := fs.Int("context", 0, "context tokens; defaults to the model's largest execution-qualified window")
 	keepAlive := fs.Bool("keep-alive", false, "leave the Backpack model session loaded after the external tool exits")
 	force := fs.Bool("force", false, "run even when model fit recommends remote compute")
 	if err = fs.Parse(args[1:]); err != nil {
@@ -80,12 +83,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	}
 	modelContext := resolved.Manifest.Model.ContextLength
 	desiredContext := *contextTokens
-	if desiredContext == 0 {
-		desiredContext = descriptor.RecommendedContextTokens
-		if modelContext > 0 && modelContext < desiredContext {
-			desiredContext = modelContext
-		}
-	}
+	desiredContext = integrations.ResolveContextWindow(desiredContext, modelContext, descriptor.RecommendedContextTokens)
 	if modelContext > 0 && desiredContext > modelContext {
 		return fmt.Errorf("requested context %d exceeds model maximum %d", desiredContext, modelContext)
 	}
@@ -157,12 +155,114 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
 }
 
+func (a *app) launchClaudeApp(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("launch claude-app", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	modelName := fs.String("model", "", "Backpack coding model")
+	computeName := fs.String("compute", "local", "Backpack compute target for local models")
+	contextTokens := fs.Int("context", 0, "context tokens; defaults to the model's largest execution-qualified window")
+	restore := fs.Bool("restore", false, "restore Claude App configuration from before Backpack setup")
+	noOpen := fs.Bool("no-open", false, "configure or restore without opening Claude App")
+	force := fs.Bool("force", false, "run a local model even when fit recommends remote compute")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("Claude App does not accept passthrough arguments")
+	}
+	stateDirectory, err := filepath.Abs(filepath.Join(a.paths.Config, "integrations", "claude-app"))
+	if err != nil {
+		return err
+	}
+	if *restore {
+		if *modelName != "" || *contextTokens != 0 || *computeName != "local" || *force {
+			return fmt.Errorf("--restore cannot be combined with model, context, compute, or force options")
+		}
+		if err = integrations.RestoreClaudeApp(stateDirectory); err != nil {
+			return err
+		}
+		fmt.Fprintln(a.out, "Restored the Claude App configuration that was active before Backpack setup.")
+		if *noOpen {
+			return nil
+		}
+		return integrations.OpenClaudeApp()
+	}
+	if *modelName == "" {
+		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, stdinIsTerminal())
+		if selectErr != nil {
+			return selectErr
+		}
+		*modelName = selected
+	}
+
+	desiredContext := *contextTokens
+	cloudModel := cloud.IsModel(*modelName)
+	var entry catalog.Model
+	if cloudModel {
+		if *computeName != "local" && *computeName != "cloud" {
+			return fmt.Errorf("a :cloud model cannot use compute target %q", *computeName)
+		}
+		model, resolveErr := a.cloud.ResolveModel(ctx, *modelName)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if !model.HasCapability("code") {
+			return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, "code")
+		}
+		desiredContext = integrations.ResolveContextWindow(desiredContext, model.ContextWindow, integrations.RecommendedAgentContext)
+		if model.ContextWindow > 0 && desiredContext > model.ContextWindow {
+			return fmt.Errorf("requested context %d exceeds cloud model maximum %d", desiredContext, model.ContextWindow)
+		}
+		entry = catalog.Model{ID: model.ID, DisplayName: model.DisplayName, Capabilities: append([]string(nil), model.Capabilities...), Status: model.Status}
+	} else {
+		entry, err = a.catalog.Resolve(*modelName)
+		if err != nil {
+			return err
+		}
+		if !hasCatalogCapability(entry, "code") {
+			return fmt.Errorf("model %q does not declare the required %q capability", entry.ID, "code")
+		}
+		resolved, resolveErr := a.models.ResolvePackage(ctx, entry)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		maximum := resolved.Manifest.Model.ContextLength
+		desiredContext = integrations.ResolveContextWindow(desiredContext, maximum, integrations.RecommendedAgentContext)
+		if maximum > 0 && desiredContext > maximum {
+			return fmt.Errorf("requested context %d exceeds model maximum %d", desiredContext, maximum)
+		}
+	}
+
+	api, err := daemon.Ensure(ctx, a.paths, a.version)
+	if err != nil {
+		return err
+	}
+	if api.APIKey == "" {
+		return fmt.Errorf("the running Backpack daemon predates secure Claude App routing; stop it and retry")
+	}
+	if !cloudModel {
+		fmt.Fprintf(a.out, "Loading %s on compute target %s...\n", entry.ID, *computeName)
+		if _, err = api.CreateSession(ctx, clientapi.CreateSessionRequest{Model: entry.ID, Compute: *computeName, Options: clientapi.SessionOptions{ContextLength: desiredContext, GPULayers: "auto", Force: *force}}); err != nil {
+			return err
+		}
+	}
+	if err = integrations.ConfigureClaudeApp(integrations.ClaudeAppOptions{StateDirectory: stateDirectory, Endpoint: api.BaseURL, APIKey: api.APIKey, Model: entry.ID, ContextTokens: desiredContext}); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.out, "Configured Claude App to use %s through Backpack's authenticated loopback API.\n", entry.ID)
+	fmt.Fprintln(a.out, "Restore with: backpack launch claude-app --restore")
+	if *noOpen {
+		return nil
+	}
+	return integrations.OpenClaudeApp()
+}
+
 func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("launch codex-app", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	modelName := fs.String("model", "", "Backpack coding model")
 	computeName := fs.String("compute", "local", "Backpack compute target for local models")
-	contextTokens := fs.Int("context", 0, "context tokens; defaults to 65536 bounded by the model maximum")
+	contextTokens := fs.Int("context", 0, "context tokens; defaults to the model's largest execution-qualified window")
 	restore := fs.Bool("restore", false, "restore the exact Codex App config saved before Backpack setup")
 	noOpen := fs.Bool("no-open", false, "configure or restore without opening Codex App")
 	force := fs.Bool("force", false, "run a local model even when fit recommends remote compute")
@@ -219,12 +319,7 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 		if !model.HasCapability("code") {
 			return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, "code")
 		}
-		if desiredContext == 0 {
-			desiredContext = integrations.RecommendedAgentContext
-			if model.ContextWindow > 0 && model.ContextWindow < desiredContext {
-				desiredContext = model.ContextWindow
-			}
-		}
+		desiredContext = integrations.ResolveContextWindow(desiredContext, model.ContextWindow, integrations.RecommendedAgentContext)
 		if model.ContextWindow > 0 && desiredContext > model.ContextWindow {
 			return fmt.Errorf("requested context %d exceeds cloud model maximum %d", desiredContext, model.ContextWindow)
 		}
@@ -242,12 +337,7 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 			return resolveErr
 		}
 		modelContext := resolved.Manifest.Model.ContextLength
-		if desiredContext == 0 {
-			desiredContext = integrations.RecommendedAgentContext
-			if modelContext > 0 && modelContext < desiredContext {
-				desiredContext = modelContext
-			}
-		}
+		desiredContext = integrations.ResolveContextWindow(desiredContext, modelContext, integrations.RecommendedAgentContext)
 		if modelContext > 0 && desiredContext > modelContext {
 			return fmt.Errorf("requested context %d exceeds model maximum %d", desiredContext, modelContext)
 		}
@@ -311,12 +401,7 @@ func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Desc
 		return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, descriptor.RequiredModelCapability)
 	}
 	desiredContext := contextTokens
-	if desiredContext == 0 {
-		desiredContext = descriptor.RecommendedContextTokens
-		if model.ContextWindow > 0 && model.ContextWindow < desiredContext {
-			desiredContext = model.ContextWindow
-		}
-	}
+	desiredContext = integrations.ResolveContextWindow(desiredContext, model.ContextWindow, descriptor.RecommendedContextTokens)
 	if model.ContextWindow > 0 && desiredContext > model.ContextWindow {
 		return fmt.Errorf("requested context %d exceeds cloud model maximum %d", desiredContext, model.ContextWindow)
 	}
@@ -384,6 +469,7 @@ func (a *app) launchList(registry *integrations.Registry) error {
 		status = "unsupported on this platform"
 	}
 	fmt.Fprintf(a.out, "%-12s %-12s %s\n", "codex-app", "Codex App", status)
+	fmt.Fprintf(a.out, "%-12s %-12s %s\n", "claude-app", "Claude App", status)
 	return nil
 }
 

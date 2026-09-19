@@ -13,6 +13,21 @@ import (
 
 const RecommendedAgentContext = 64 * 1024
 
+// ResolveContextWindow chooses the largest execution-qualified model window
+// unless the caller explicitly requests a smaller value. The fallback is used
+// only for older package contracts that do not declare a context limit.
+// Native/theoretical model limits must not be passed as modelMaximum until the
+// runtime backend has actually qualified them.
+func ResolveContextWindow(requested, modelMaximum, fallback int) int {
+	if requested > 0 {
+		return requested
+	}
+	if modelMaximum > 0 {
+		return modelMaximum
+	}
+	return fallback
+}
+
 // codexAgentInstructions supplies the behavioral contract Codex expects from a
 // model catalog entry. An empty base_instructions value replaces Codex's
 // built-in instructions with nothing, which makes otherwise tool-capable models
@@ -97,7 +112,11 @@ func ClaudeInvocation(options ProviderOptions) (Invocation, error) {
 		return Invocation{}, err
 	}
 	if options.ContextTokens > 0 {
-		if err = add(Set("CLAUDE_CODE_MAX_CONTEXT_TOKENS", strconv.Itoa(options.ContextTokens))); err != nil {
+		// Claude Code uses this value as the automatic compaction boundary for
+		// third-party providers. Keep it aligned with the execution-qualified
+		// model window so long-running agents compact before the backend rejects
+		// an oversized request.
+		if err = add(Set("CLAUDE_CODE_AUTO_COMPACT_WINDOW", strconv.Itoa(options.ContextTokens))); err != nil {
 			return Invocation{}, err
 		}
 	}
@@ -138,9 +157,14 @@ func CodexInvocation(options ProviderOptions) (Invocation, error) {
 		return Invocation{}, err
 	}
 	apiKey, _ := Secret("OPENAI_API_KEY", options.APIKey)
-	configHome, _ := Set("CODEX_HOME", options.ConfigDirectory)
 	cloudAPIKey, _ := Unset("BACKPACK_API_KEY")
-	environment, _ := NewEnvironmentOverlay(apiKey, configHome, cloudAPIKey)
+	environment, _ := NewEnvironmentOverlay(apiKey, cloudAPIKey)
+	// Provider/model routing remains isolated through highest-precedence CLI
+	// overrides and a Backpack-owned catalog, while Codex keeps its real
+	// user-level CODEX_HOME. Repointing CODEX_HOME causes ~/.codex/config.toml
+	// to be rediscovered as a project-local config when the user launches from
+	// their home directory, which both emits misleading warnings and disables
+	// machine-local settings such as notify.
 	invocation := Invocation{Executable: options.Executable, ManagedArguments: managed, PassthroughArguments: passthrough, Environment: environment, IsolatedConfigDirectory: options.ConfigDirectory}
 	return invocation, invocation.Validate()
 }

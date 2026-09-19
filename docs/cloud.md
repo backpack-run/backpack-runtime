@@ -32,11 +32,17 @@ For example:
 backpack launch doctor codex --model qwen3-coder-30b-a3b-instruct:cloud
 backpack launch codex --model qwen3-coder-30b-a3b-instruct:cloud
 backpack launch claude --model qwen3-coder-30b-a3b-instruct:cloud
+backpack launch claude-app --model qwen3-coder-30b-a3b-instruct:cloud
+backpack launch opencode --model qwen3-coder-30b-a3b-instruct:cloud
 ```
 
 `qwen3-coder-next:cloud` is not currently advertised by the API and is not silently mapped to another model. Disabled or unknown IDs fail before an agent is launched and list the currently available IDs.
 
 The local daemon forwards Cloud requests for OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages. It replaces the local per-daemon bearer token with the Cloud credential; the Cloud credential is never given to Codex, Claude Code, or OpenCode. Cloud launch is stateless, so `--keep-alive` and local/SSH compute selection do not apply.
+
+If Windows reports that the stored credential cannot be opened or mentions DPAPI, the credential was encrypted for a different Windows user/machine state. Reinstalling the executable does not repair it. Run `backpack logout`, then `backpack login`, and verify with `backpack cloud status` and `backpack cloud models`.
+
+An agent error such as `stream closed before response.completed` means the upstream worker ended a streaming request without a terminal protocol event. Current runtime builds convert that into an explicit protocol failure with the safe request ID when available. Retry only after `backpack cloud models` succeeds; if direct Cloud requests continue returning HTTP 5xx, the hosted GPU worker—not the local agent configuration—requires repair.
 
 ## Security boundary
 

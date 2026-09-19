@@ -61,6 +61,8 @@ Experimental coding-agent launch support is available for installed third-party 
 backpack launch list
 backpack launch doctor codex --model qwen3-coder-next
 backpack launch codex --model qwen3-coder-next
+backpack launch claude --model qwen3-coder-next
+backpack launch claude-app --model qwen3-coder-next
 backpack launch opencode --model qwen3-coder-next
 ```
 
@@ -71,11 +73,16 @@ backpack login
 backpack cloud models
 backpack launch codex --model qwen3-coder-30b-a3b-instruct:cloud
 backpack launch codex-app --model qwen3-coder-30b-a3b-instruct:cloud
+backpack launch claude --model qwen3-coder-30b-a3b-instruct:cloud
+backpack launch claude-app --model qwen3-coder-30b-a3b-instruct:cloud
+backpack launch opencode --model qwen3-coder-30b-a3b-instruct:cloud
 ```
 
 Use only an ID returned by `backpack cloud models`; `qwen3-coder-next:cloud` is not currently available and is not mapped to a different model. See [Backpack Cloud](docs/cloud.md) for device-key storage, API-key automation, and security boundaries.
 
 `codex-app` persistently adds the selected Backpack model alongside the native models available to the installed Codex desktop app on Windows or macOS. Native entries remain routed to OpenAI/ChatGPT; the Backpack entry is routed separately through Backpack's authenticated loopback service. It preserves the user's existing authentication and config in a private backup; restore the previous profile with `backpack launch codex-app --restore`. This integration is experimental and requires restarting Codex App when it is already open. See [Codex App integration](docs/integrations/codex-app.md).
+
+`claude-app` (alias `claude-desktop`) configures Claude's third-party inference profile for one selected Backpack model. Restore the exact previous profile with `backpack launch claude-app --restore`. Claude App support is experimental and has not yet completed a real app qualification on Windows or macOS.
 
 ## What works
 

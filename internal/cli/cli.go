@@ -154,7 +154,7 @@ func (a *app) commandHelp(command string) error {
 		"inspect":    "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
 		"hardware":   "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
 		"run":        "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
-		"launch":     "Usage: backpack launch <list|doctor|claude|codex|codex-app|opencode> [options] [-- tool-args]\n\nExperimental: launches coding agents through Backpack. Codex App setup is persistent; restore it with `backpack launch codex-app --restore`.\n",
+		"launch":     "Usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode> [options] [-- tool-args]\n\nExperimental: launches coding agents through Backpack. App setup is persistent; restore it with `backpack launch <codex-app|claude-app> --restore`.\n",
 		"login":      "Usage: backpack login [--name device-name] [--no-browser]\n\nAuthorize this device for Backpack Cloud without storing a password or long-lived access token.\n",
 		"logout":     "Usage: backpack logout\n\nRemove the local Backpack Cloud device credential.\n",
 		"cloud":      "Usage: backpack cloud <status|models> [--json]\n\nInspect Backpack Cloud authentication and live model availability.\n",

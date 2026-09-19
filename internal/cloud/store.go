@@ -86,7 +86,7 @@ func (s *CredentialStore) Load() (Credentials, error) {
 	privateKey, err := unprotectSecret(protected, metadata.Storage)
 	zero(protected)
 	if err != nil {
-		return credentials, err
+		return credentials, fmt.Errorf("stored Backpack Cloud credential cannot be opened for this user or machine; run `backpack logout` and then `backpack login`: %w", err)
 	}
 	if len(privateKey) != ed25519.PrivateKeySize {
 		zero(privateKey)
