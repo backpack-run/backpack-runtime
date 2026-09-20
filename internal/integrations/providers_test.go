@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestClaudeInvocationIsolatesRoutingAndPreservesPassthrough(t *testing.T) {
 		t.Fatalf("unexpected args %#v", args)
 	}
 	env := strings.Join(invocation.Environment.Apply([]string{"ANTHROPIC_BASE_URL=https://api.anthropic.com", "ANTHROPIC_API_KEY=secret", "BACKPACK_API_KEY=cloud-secret", "PATH=test"}), "\n")
-	for _, required := range []string{"ANTHROPIC_BASE_URL=http://127.0.0.1:11434", "ANTHROPIC_AUTH_TOKEN=test-daemon-key", "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=backpack-runtime", "CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536", "CLAUDE_CONFIG_DIR=" + filepath.Join(root, "claude"), "PATH=test"} {
+	for _, required := range []string{"ANTHROPIC_BASE_URL=http://127.0.0.1:11434", "ANTHROPIC_AUTH_TOKEN=test-daemon-key", "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=backpack-runtime", "CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536", "CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192", "CLAUDE_CONFIG_DIR=" + filepath.Join(root, "claude"), "PATH=test"} {
 		if !strings.Contains(env, required) {
 			t.Fatalf("missing %q in child environment %s", required, env)
 		}
@@ -63,6 +64,9 @@ func TestCodexInvocationUsesCommandLineProviderIsolation(t *testing.T) {
 	}
 	if strings.Contains(joined, "--dangerously") {
 		t.Fatalf("launcher weakened Codex permissions: %s", joined)
+	}
+	if runtime.GOOS == "windows" && !strings.Contains(joined, `windows.sandbox="unelevated"`) {
+		t.Fatalf("Windows launcher omitted the documented Codex sandbox fallback: %s", joined)
 	}
 	environment := strings.Join(invocation.Environment.Apply([]string{"CODEX_HOME=user", "OPENAI_API_KEY=user-secret", "BACKPACK_API_KEY=cloud-secret"}), "\n")
 	if !strings.Contains(environment, "CODEX_HOME=user") || !strings.Contains(environment, "OPENAI_API_KEY=test-daemon-key") || strings.Contains(environment, "user-secret") || strings.Contains(environment, "cloud-secret") {

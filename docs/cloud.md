@@ -48,6 +48,10 @@ If Windows reports that the stored credential cannot be opened or mentions DPAPI
 
 An agent error such as `stream closed before response.completed` means the upstream worker ended a streaming request without a terminal protocol event. Current runtime builds convert that into an explicit protocol failure with the safe request ID when available. Retry only after `backpack cloud models` succeeds; if direct Cloud requests continue returning HTTP 5xx, the hosted GPU worker—not the local agent configuration—requires repair.
 
+Claude Code treats unknown third-party model IDs as 200K/32K first-party models unless the gateway constrains them. For the current 32K Cloud deployment, Backpack advertises the qualified 32K context, reserves at most 8192 tokens for one response, and preserves the rest for Claude's system prompt, tool schemas, history, and results. The local proxy enforces the same output ceiling for Cloud Messages requests so a stale client cannot accidentally request an impossible 32K output on top of its input.
+
+On native Windows, a Codex response can contain a valid shell tool call but still fail locally with `helper_unknown_error: setup refresh had errors`. That is a Codex Windows sandbox initialization failure, not a model or Cloud protocol failure. Backpack-launched Codex uses OpenAI's documented `unelevated` sandbox fallback on Windows; it retains ACL-based filesystem restrictions but provides weaker isolation than the preferred elevated sandbox. Native OpenAI Codex sessions outside Backpack may require the same setting until the elevated sandbox is repaired.
+
 ## Security boundary
 
 The runtime remains loopback-only. Cloud proxy routes additionally require a random per-daemon bearer token stored in private runtime state and injected only into the launched child process. This protects against unauthenticated browser and local HTTP requests consuming Cloud quota. A malicious process already running as the same OS user remains within the same trust boundary and may be able to read user-owned process or state data.

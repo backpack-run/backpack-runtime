@@ -151,6 +151,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	warnCodexWindowsSandboxFallback(a.err, descriptor.ID)
 	fmt.Fprintf(a.out, "Launching %s through Backpack at %s (session %s).\n", descriptor.DisplayName, api.BaseURL, session.ID)
 	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
 }
@@ -449,8 +450,15 @@ func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Desc
 	if err != nil {
 		return err
 	}
+	warnCodexWindowsSandboxFallback(a.err, descriptor.ID)
 	fmt.Fprintf(a.out, "Launching %s through Backpack Cloud model %s via the local loopback API.\n", descriptor.DisplayName, model.ID)
 	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
+}
+
+func warnCodexWindowsSandboxFallback(output io.Writer, integrationID string) {
+	if runtime.GOOS == "windows" && integrationID == "codex" {
+		fmt.Fprintln(output, "Warning: using Codex's unelevated Windows sandbox fallback; filesystem restrictions remain, but isolation is weaker than the preferred elevated sandbox.")
+	}
 }
 
 func (a *app) launchList(registry *integrations.Registry) error {

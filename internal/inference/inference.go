@@ -6,6 +6,32 @@ import (
 	"strings"
 )
 
+const maxAgentOutputTokens = 8 * 1024
+
+// AgentOutputTokenBudget leaves most of a model's execution-qualified context
+// window available for agent instructions, tool schemas, history, and tool
+// results. Agent clients often assume the output limit of a first-party model;
+// that value can consume the entire context window of a smaller open model.
+func AgentOutputTokenBudget(contextTokens int) int {
+	if contextTokens <= 0 {
+		return maxAgentOutputTokens
+	}
+	budget := contextTokens / 4
+	if budget < 1024 {
+		budget = 1024
+	}
+	if budget > maxAgentOutputTokens {
+		budget = maxAgentOutputTokens
+	}
+	if budget >= contextTokens {
+		budget = contextTokens / 2
+		if budget < 1 {
+			budget = 1
+		}
+	}
+	return budget
+}
+
 // Request is Backpack's protocol-neutral chat/tool inference contract. Public
 // compatibility handlers translate into this type; runtime adapters continue
 // to speak only their engine's native wire format.

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/backpack-run/backpack-runtime/internal/inference"
 )
 
 const claudeAppRouteModel = "claude-sonnet-5"
@@ -42,7 +44,7 @@ func (s *Server) claudeAppModels(w http.ResponseWriter, r *http.Request) {
 	write(w, http.StatusOK, map[string]any{
 		"data": []any{map[string]any{
 			"id": claudeAppRouteModel, "type": "model", "display_name": model,
-			"created_at": "2026-01-01T00:00:00Z", "max_tokens": min(contextTokens, 16384),
+			"created_at": "2026-01-01T00:00:00Z", "max_tokens": inference.AgentOutputTokenBudget(contextTokens),
 			"anthropic_family_tier": "sonnet", "is_family_default": true,
 		}},
 		"first_id": claudeAppRouteModel, "last_id": claudeAppRouteModel, "has_more": false,

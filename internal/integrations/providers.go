@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
+	"github.com/backpack-run/backpack-runtime/internal/inference"
 )
 
 const RecommendedAgentContext = 64 * 1024
@@ -119,6 +121,9 @@ func ClaudeInvocation(options ProviderOptions) (Invocation, error) {
 		if err = add(Set("CLAUDE_CODE_AUTO_COMPACT_WINDOW", strconv.Itoa(options.ContextTokens))); err != nil {
 			return Invocation{}, err
 		}
+		if err = add(Set("CLAUDE_CODE_MAX_OUTPUT_TOKENS", strconv.Itoa(inference.AgentOutputTokenBudget(options.ContextTokens)))); err != nil {
+			return Invocation{}, err
+		}
 	}
 	environment, err := NewEnvironmentOverlay(values...)
 	if err != nil {
@@ -150,6 +155,13 @@ func CodexInvocation(options ProviderOptions) (Invocation, error) {
 		"-c", `features.plugins=false`,
 		"-c", `features.multi_agent=false`,
 		"-m", options.Model,
+	}
+	if runtime.GOOS == "windows" {
+		// Codex's preferred elevated Windows sandbox can fail during its setup
+		// refresh before a command starts. OpenAI documents unelevated as the
+		// supported fallback; it retains ACL-based filesystem restrictions but
+		// has weaker isolation than the elevated implementation.
+		managedValues = append([]string{"-c", `windows.sandbox="unelevated"`}, managedValues...)
 	}
 	managed, _ := NewArguments(managedValues...)
 	passthrough, err := NewArguments(options.Passthrough...)

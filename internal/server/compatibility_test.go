@@ -119,6 +119,31 @@ func TestAnthropicStreamingToolUseEvents(t *testing.T) {
 	}
 }
 
+func TestCloudAnthropicCapsAgentOutputToLeaveInputContext(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "test-cloud-key")
+	var forwarded map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&forwarded); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"message","type":"message","role":"assistant","content":[],"model":"coder:cloud","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	w := httptest.NewRecorder()
+	body := `{"model":"coder:cloud","max_tokens":32000,"messages":[{"role":"user","content":"hello"}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	s.Handler().ServeHTTP(w, request)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := int(forwarded["max_tokens"].(float64)); got != 8192 {
+		t.Fatalf("forwarded max_tokens=%d", got)
+	}
+}
+
 func TestCompatibilityEndpointsRejectUnsupportedSemantics(t *testing.T) {
 	s := Server{Sessions: fakeSessions{}}
 	tests := []struct {

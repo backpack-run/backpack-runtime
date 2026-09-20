@@ -43,6 +43,11 @@ func (s *Server) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 		Stream bool   `json:"stream"`
 	}
 	if json.Unmarshal(body, &envelope) == nil && cloud.IsModel(envelope.Model) {
+		body, err = clampAnthropicOutputTokens(body, inference.AgentOutputTokenBudget(0))
+		if err != nil {
+			writeAnthropicError(w, http.StatusBadRequest, err)
+			return
+		}
 		s.proxyCloud(w, r, "/v1/messages", body, envelope.Stream)
 		return
 	}
@@ -72,6 +77,24 @@ func (s *Server) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, http.StatusOK, anthropicResponse(request.Model, result))
+}
+
+func clampAnthropicOutputTokens(body []byte, maximum int) ([]byte, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("invalid Anthropic Messages request: %w", err)
+	}
+	var requested int
+	if raw := payload["max_tokens"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &requested); err != nil {
+			return nil, fmt.Errorf("max_tokens must be an integer")
+		}
+	}
+	if requested > maximum {
+		payload["max_tokens"], _ = json.Marshal(maximum)
+		return json.Marshal(payload)
+	}
+	return body, nil
 }
 
 func parseAnthropicRequest(data []byte) (inference.Request, bool, error) {
