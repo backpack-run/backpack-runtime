@@ -26,9 +26,9 @@ Windows is the supported alpha platform. Linux remains an experimental preview d
 |---|---|---|
 | OpenAI Responses text/tool protocol | installed Codex CLI plus deterministic fake inference backend | passed |
 | Codex shell-tool round trip | real Codex binary executed a shell tool and continued from its output | protocol-qualified |
-| Codex with a real Backpack coding model | Qwen3-Coder 30B A3B loaded at 32K context, connected to installed Codex 0.154, and emitted shell/edit tool calls; the nested CLI inherited the qualification host's enforced read-only policy, so execution and file modification were rejected | unqualified (host policy blocked the final edit gate) |
+| Codex with a real Backpack Cloud coding model | installed Codex 0.155 executed a PowerShell location command through Qwen3-Coder 30B A3B and continued from the tool result; native OpenAI Codex reproduced the elevated Windows sandbox failure, and the documented per-launch `unelevated` fallback resolved it | passed with documented Windows sandbox tradeoff |
 | Claude Messages text/tool protocol | deterministic conformance tests | protocol-qualified |
-| Claude Code real binary | executable unavailable on qualification host | unqualified |
+| Claude Code real binary | installed Claude Code 2.1.278 executed a Bash location command through Qwen3-Coder 30B A3B and continued from the tool result; request output reservation was bounded to the model-aware budget | passed for the Cloud model |
 | OpenCode provider/config isolation | deterministic invocation tests | implementation-qualified |
 | OpenCode real binary/model | executable unavailable on qualification host | unqualified |
 | SSH command, host-key, sync and tunnel behavior | deterministic unit/integration abstractions | implementation-qualified |
