@@ -32,18 +32,16 @@ func Install(executablePath string, prepared Prepared, goos string) (InstallResu
 	if goos == "windows" {
 		tag := strings.TrimPrefix(prepared.Plan.Target.TagName, "v")
 		pending := absolute + ".update-" + tag
-		if _, statErr := os.Stat(pending); statErr == nil {
+		// Releases before v0.2.0-alpha.7 left a verified side-by-side file on
+		// Windows and required the user to replace the running executable
+		// manually. Windows permits renaming the mapped executable, so remove
+		// that legacy staging file and use the same rollback-safe activation as
+		// the other platforms. The freshly downloaded executable above has
+		// already passed the release checksum and embedded-version checks.
+		if removeErr := os.Remove(pending); removeErr != nil && !os.IsNotExist(removeErr) {
 			_ = os.Remove(staged)
-			return InstallResult{}, fmt.Errorf("verified staged update already exists at %s", pending)
-		} else if !os.IsNotExist(statErr) {
-			_ = os.Remove(staged)
-			return InstallResult{}, statErr
+			return InstallResult{}, fmt.Errorf("remove legacy Windows staged update %s: %w", pending, removeErr)
 		}
-		if err = os.Rename(staged, pending); err != nil {
-			_ = os.Remove(staged)
-			return InstallResult{}, fmt.Errorf("stage Windows update: %w", err)
-		}
-		return InstallResult{RequiresRestart: true, ExecutablePath: absolute, StagedPath: pending}, nil
 	}
 	backup := fmt.Sprintf("%s.backup-%s", absolute, time.Now().UTC().Format("20060102T150405.000000000Z"))
 	if err = replaceWithRollback(absolute, staged, backup, os.Rename); err != nil {

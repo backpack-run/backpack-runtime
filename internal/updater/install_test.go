@@ -26,21 +26,28 @@ func TestUnixInstallCreatesRollbackBackup(t *testing.T) {
 	}
 }
 
-func TestWindowsInstallStagesWithoutReplacingRunningExecutable(t *testing.T) {
+func TestWindowsInstallActivatesWithRollbackBackup(t *testing.T) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "backpack.exe")
 	if err := os.WriteFile(executable, []byte("old"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	legacyPending := executable + ".update-1.0.0"
+	if err := os.WriteFile(legacyPending, []byte("previous staged copy"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	result, err := Install(executable, Prepared{Plan: Plan{Target: Release{TagName: "v1.0.0"}}, Executable: []byte("new")}, "windows")
-	if err != nil || result.Installed || !result.RequiresRestart || result.StagedPath == "" {
+	if err != nil || !result.Installed || result.RequiresRestart || result.BackupPath == "" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
-	if current, _ := os.ReadFile(executable); string(current) != "old" {
-		t.Fatalf("running executable changed: %q", current)
+	if current, _ := os.ReadFile(executable); string(current) != "new" {
+		t.Fatalf("current executable = %q", current)
 	}
-	if staged, _ := os.ReadFile(result.StagedPath); string(staged) != "new" {
-		t.Fatalf("staged executable = %q", staged)
+	if backup, _ := os.ReadFile(result.BackupPath); string(backup) != "old" {
+		t.Fatalf("backup executable = %q", backup)
+	}
+	if _, statErr := os.Stat(legacyPending); !os.IsNotExist(statErr) {
+		t.Fatalf("legacy pending file remains: %v", statErr)
 	}
 }
 
