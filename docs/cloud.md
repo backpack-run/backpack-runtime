@@ -44,6 +44,8 @@ backpack launch opencode --model qwen3-coder-30b-a3b-instruct:cloud
 
 The local daemon forwards Cloud requests for OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages. It replaces the local per-daemon bearer token with the Cloud credential; the Cloud credential is never given to Codex, Claude Code, or OpenCode. Cloud launch is stateless, so `--keep-alive` and local/SSH compute selection do not apply.
 
+Cloud provider failures use HTTP 503 with a structured `cloud_inference_unavailable` error. Runtime preserves the safe `Retry-After`, `X-Request-ID`, and `X-Provider-Request-ID` response headers so clients can back off and operators can correlate a failure without exposing provider internals. An interrupted successful stream is converted into the appropriate protocol error and uses the provider correlation ID when present.
+
 If Windows reports that the stored credential cannot be opened or mentions DPAPI, the credential was encrypted for a different Windows user/machine state. Reinstalling the executable does not repair it. Run `backpack logout`, then `backpack login`, and verify with `backpack cloud status` and `backpack cloud models`.
 
 An agent error such as `stream closed before response.completed` means the upstream worker ended a streaming request without a terminal protocol event. Current runtime builds convert that into an explicit protocol failure with the safe request ID when available. Retry only after `backpack cloud models` succeeds; if direct Cloud requests continue returning HTTP 5xx, the hosted GPU worker—not the local agent configuration—requires repair.
@@ -61,6 +63,8 @@ The runtime remains loopback-only. Cloud proxy routes additionally require a ran
 `BACKPACK_CLOUD_URL` exists for development and private deployments. It accepts HTTPS endpoints, or loopback HTTP for tests; credentials are never sent to arbitrary cleartext hosts. Diagnostics report only whether authentication is configured and its source, never key material or access tokens.
 
 Cloud is private alpha. Models, pricing, qualification, and availability may change independently of a runtime release. The live `/v1/models` response is authoritative.
+
+Authentication and inference entitlement are separate. `backpack cloud status` can report an authenticated device while `backpack cloud models` correctly refuses an account whose Cloud access has not been enabled. After the approved identity has signed in and an administrator grants access, run `backpack logout` followed by `backpack login` if the device was registered to a different account.
 
 ## Model and target direction
 

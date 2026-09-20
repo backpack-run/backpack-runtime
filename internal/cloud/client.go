@@ -444,7 +444,11 @@ func responseError(response *http.Response) error {
 		} `json:"error"`
 	}
 	_ = json.Unmarshal(data, &envelope)
-	return &APIError{StatusCode: response.StatusCode, Type: safeText(envelope.Error.Type, 80), Message: safeText(envelope.Error.Message, 500), RequestID: safeText(response.Header.Get("X-Request-ID"), 100)}
+	requestID := response.Header.Get("X-Provider-Request-ID")
+	if requestID == "" {
+		requestID = response.Header.Get("X-Request-ID")
+	}
+	return &APIError{StatusCode: response.StatusCode, Type: safeText(envelope.Error.Type, 80), Message: safeText(envelope.Error.Message, 500), RequestID: safeText(requestID, 100)}
 }
 
 func safeText(value string, limit int) string {

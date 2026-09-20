@@ -576,21 +576,20 @@ func (s *Server) proxyCloud(w http.ResponseWriter, r *http.Request, path string,
 	}
 	defer response.Body.Close()
 	if response.StatusCode/100 != 2 {
-		if retryAfter := response.Header.Get("Retry-After"); retryAfter != "" {
-			w.Header().Set("Retry-After", retryAfter)
-		}
-		if requestID := response.Header.Get("X-Request-ID"); requestID != "" {
-			w.Header().Set("X-Request-ID", requestID)
+		for _, name := range []string{"Retry-After", "X-Request-ID", "X-Provider-Request-ID"} {
+			if value := response.Header.Get(name); value != "" {
+				w.Header().Set(name, value)
+			}
 		}
 		data, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 		if readErr != nil {
 			writeError(w, http.StatusBadGateway, fmt.Errorf("read Backpack Cloud error response: %w", readErr))
 			return
 		}
-		writeError(w, response.StatusCode, cloudResponseError(response.StatusCode, data))
+		writeCloudResponseError(w, response.StatusCode, cloudResponseError(response.StatusCode, data))
 		return
 	}
-	for _, name := range []string{"Content-Type", "Cache-Control", "Retry-After", "X-Request-ID"} {
+	for _, name := range []string{"Content-Type", "Cache-Control", "Retry-After", "X-Request-ID", "X-Provider-Request-ID"} {
 		if value := response.Header.Get(name); value != "" {
 			w.Header().Set(name, value)
 		}
@@ -602,11 +601,11 @@ func (s *Server) proxyCloud(w http.ResponseWriter, r *http.Request, path string,
 			return
 		}
 		if path == "/v1/responses" {
-			proxyResponsesStream(w, flusher, response.Body, response.Header.Get("X-Request-ID"))
+			proxyResponsesStream(w, flusher, response.Body, cloudCorrelationID(response.Header))
 			return
 		}
 		if path == "/v1/messages" || path == "/v1/chat/completions" {
-			proxyLegacyInferenceStream(w, flusher, response.Body, path, response.Header.Get("X-Request-ID"))
+			proxyLegacyInferenceStream(w, flusher, response.Body, path, cloudCorrelationID(response.Header))
 			return
 		}
 		buffer := make([]byte, 32<<10)
@@ -730,6 +729,26 @@ func cloudResponseError(status int, body []byte) error {
 		return &cloud.APIError{StatusCode: status, Type: strings.TrimSpace(envelope.Error.Type), Message: strings.TrimSpace(envelope.Error.Message)}
 	}
 	return fmt.Errorf("Backpack Cloud inference is unavailable (upstream HTTP %d); retry after the GPU worker becomes ready", status)
+}
+
+func writeCloudResponseError(w http.ResponseWriter, status int, err error) {
+	var apiError *cloud.APIError
+	if errors.As(err, &apiError) && apiError.Type != "" && apiError.Type != "private_access_required" && apiError.Type != "cloud_access_required" {
+		message := apiError.Message
+		if message == "" {
+			message = "Backpack Cloud request failed"
+		}
+		write(w, status, map[string]any{"error": map[string]string{"message": message, "type": apiError.Type}})
+		return
+	}
+	writeError(w, status, err)
+}
+
+func cloudCorrelationID(header http.Header) string {
+	if requestID := strings.TrimSpace(header.Get("X-Provider-Request-ID")); requestID != "" {
+		return requestID
+	}
+	return strings.TrimSpace(header.Get("X-Request-ID"))
 }
 
 func cloudErrorStatus(err error) int {

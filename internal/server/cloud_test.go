@@ -132,6 +132,47 @@ func TestCloudPlainTextFailureBecomesStructuredAPIError(t *testing.T) {
 	}
 }
 
+func TestCloudStructuredUnavailablePreservesSafeRetryContract(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "test-stream-key")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "15")
+		w.Header().Set("X-Provider-Request-ID", "provider-safe-123")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, `{"error":{"type":"cloud_inference_unavailable","message":"Cloud inference is temporarily unavailable"}}`)
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"coder:cloud","messages":[],"max_tokens":1}`))
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "15" || response.Header().Get("X-Provider-Request-ID") != "provider-safe-123" {
+		t.Fatalf("status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"type":"cloud_inference_unavailable"`) || strings.Contains(response.Body.String(), `"type":"runtime_error"`) {
+		t.Fatalf("structured Cloud error was not preserved: %s", response.Body.String())
+	}
+}
+
+func TestCloudInterruptedStreamUsesProviderCorrelationID(t *testing.T) {
+	t.Setenv("BACKPACK_API_KEY", "test-stream-key")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("X-Request-ID", "gateway-request")
+		w.Header().Set("X-Provider-Request-ID", "provider-request")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\ndata: {\"delta\":\"partial\"}\n\n")
+	}))
+	defer upstream.Close()
+	s := Server{Cloud: serverCloudClient(t, upstream.URL), CloudProxyToken: "daemon-secret"}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"coder:cloud","input":"hello","stream":true}`))
+	request.Header.Set("Authorization", "Bearer daemon-secret")
+	s.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("X-Provider-Request-ID") != "provider-request" || !strings.Contains(response.Body.String(), "provider-request") {
+		t.Fatalf("status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
 func TestCloudProxyRejectsUnauthenticatedLocalRequest(t *testing.T) {
 	t.Setenv("BACKPACK_API_KEY", "upstream-secret")
 	upstreamCalls := 0
