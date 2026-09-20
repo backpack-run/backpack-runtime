@@ -43,6 +43,8 @@ Codex keeps its normal user-level `CODEX_HOME`; Backpack applies provider routin
 
 Codex App and Claude App are exceptions to the child-only launch model. Their launch commands write persistent, narrowly scoped desktop profiles and open the installed Windows/macOS app. They accept no passthrough arguments. Use `backpack launch codex-app --restore` or `backpack launch claude-app --restore` to restore the previous configuration; `--no-open` changes configuration without opening the app. If an app is already running, quit and reopen it to load the change.
 
+Claude may add preferences and Cowork paths to its third-party-mode config after launch. Backpack validates only the `deploymentMode` field it owns in that shared file, preserves Claude-owned additions across reconfiguration and restore, and continues using strict whole-file validation for the authenticated provider profile. On Windows, the launcher supports both traditional per-user installations and current MSIX installations through Claude's registered `claude://` protocol.
+
 Claude App support uses its third-party inference gateway mode and a dedicated authenticated loopback route. It advertises only the selected Backpack model, implements the app's model and token-count discovery calls, and rewrites the Claude-facing compatibility alias to the trusted Backpack model ID. The original first-party profile files are retained in private restore state and restoration is refused after unexpected config drift. This path is experimental and has deterministic gateway tests; a real Claude App session was not available on the qualification host.
 
 ## Security boundary

@@ -63,7 +63,8 @@ func ConfigureClaudeApp(options ClaudeAppOptions) error {
 		}
 		for _, file := range existing.Files {
 			current, existed, readErr := readRegularFile(file.Path)
-			if readErr != nil || !existed || claudeAppDigest(current) != file.ManagedSHA256 {
+			managed := readErr == nil && existed && claudeAppDigest(current) == file.ManagedSHA256
+			if !managed && !(readErr == nil && existed && isClaudeAppModeConfig(file.Path) && claudeAppModeIntact(current)) {
 				return fmt.Errorf("Claude App config changed after Backpack configured it; refusing to overwrite %s", file.Path)
 			}
 			previous[file.Path] = file
@@ -144,11 +145,18 @@ func RestoreClaudeApp(stateDirectory string) error {
 	}
 	for _, file := range state.Files {
 		current, existed, readErr := readRegularFile(file.Path)
-		if readErr != nil || !existed || claudeAppDigest(current) != file.ManagedSHA256 {
+		managed := readErr == nil && existed && claudeAppDigest(current) == file.ManagedSHA256
+		if !managed && !(readErr == nil && existed && isClaudeAppModeConfig(file.Path) && claudeAppModeIntact(current)) {
 			return fmt.Errorf("Claude App config changed after Backpack configured it; refusing destructive restore of %s", file.Path)
 		}
 	}
 	for _, file := range state.Files {
+		if isClaudeAppModeConfig(file.Path) {
+			if err = restoreClaudeAppModeConfig(file); err != nil {
+				return err
+			}
+			continue
+		}
 		if file.Existed {
 			if err = writePrivateAtomic(file.Path, file.Original); err != nil {
 				return err
@@ -158,6 +166,45 @@ func RestoreClaudeApp(stateDirectory string) error {
 		}
 	}
 	return os.Remove(statePath)
+}
+
+func isClaudeAppModeConfig(path string) bool {
+	return strings.EqualFold(filepath.Base(path), "claude_desktop_config.json")
+}
+
+func claudeAppModeIntact(data []byte) bool {
+	var value map[string]any
+	return json.Unmarshal(data, &value) == nil && value["deploymentMode"] == "3p"
+}
+
+// restoreClaudeAppModeConfig restores only the field Backpack owns. Claude may
+// add preferences and Cowork paths while it runs; replacing the whole file
+// would silently destroy those settings.
+func restoreClaudeAppModeConfig(file claudeAppFileState) error {
+	currentData, existed, err := readRegularFile(file.Path)
+	if err != nil || !existed {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("Claude App config disappeared after Backpack configured it: %s", file.Path)
+	}
+	current := map[string]any{}
+	if err = json.Unmarshal(currentData, &current); err != nil {
+		return fmt.Errorf("parse Claude App config %s: %w", file.Path, err)
+	}
+	original := map[string]any{}
+	if file.Existed && len(strings.TrimSpace(string(file.Original))) > 0 {
+		if err = json.Unmarshal(file.Original, &original); err != nil {
+			return fmt.Errorf("parse saved Claude App config %s: %w", file.Path, err)
+		}
+	}
+	if mode, ok := original["deploymentMode"]; ok {
+		current["deploymentMode"] = mode
+	} else {
+		delete(current, "deploymentMode")
+	}
+	data, _ := json.MarshalIndent(current, "", "  ")
+	return writePrivateAtomic(file.Path, append(data, '\n'))
 }
 
 type claudeAppPaths struct{ normalConfig, thirdPartyConfig, meta, profile string }
@@ -215,6 +262,12 @@ func OpenClaudeApp() error {
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
 			return exec.Command(candidate).Start()
 		}
+	}
+	// Current Windows Claude releases may be installed as MSIX packages under
+	// WindowsApps, where direct executable discovery is intentionally restricted.
+	// Claude registers this URI protocol for supported desktop installations.
+	if err := exec.Command("explorer.exe", "claude://").Start(); err == nil {
+		return nil
 	}
 	return fmt.Errorf("Claude App executable was not found; install and open Claude once, then retry")
 }
