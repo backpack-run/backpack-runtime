@@ -38,9 +38,10 @@ const codexAgentInstructions = `You are a coding agent operating in the user's w
 
 func Builtins() (*Registry, error) {
 	return NewRegistry(
-		Descriptor{ID: "claude", DisplayName: "Claude Code", ExecutableCandidates: []string{"claude"}, RequiredModelCapability: "code", RecommendedContextTokens: RecommendedAgentContext},
-		Descriptor{ID: "codex", DisplayName: "Codex CLI", ExecutableCandidates: []string{"codex"}, RequiredModelCapability: "code", RecommendedContextTokens: RecommendedAgentContext},
-		Descriptor{ID: "opencode", DisplayName: "OpenCode", ExecutableCandidates: []string{"opencode"}, RequiredModelCapability: "code", RecommendedContextTokens: RecommendedAgentContext},
+		Descriptor{ID: "claude", DisplayName: "Claude Code", ExecutableCandidates: []string{"claude"}, Protocol: "messages", RequiredModelCapabilities: []string{"coding", "tool-calling"}, RecommendedContextTokens: RecommendedAgentContext},
+		Descriptor{ID: "codex", DisplayName: "Codex CLI", ExecutableCandidates: []string{"codex"}, Protocol: "responses", RequiredModelCapabilities: []string{"coding", "tool-calling"}, RecommendedContextTokens: RecommendedAgentContext},
+		Descriptor{ID: "opencode", DisplayName: "OpenCode", ExecutableCandidates: []string{"opencode"}, Protocol: "chat-completions", RequiredModelCapabilities: []string{"coding", "tool-calling"}, RecommendedContextTokens: RecommendedAgentContext},
+		Descriptor{ID: "pi", DisplayName: "Pi", ExecutableCandidates: []string{"pi"}, Protocol: "chat-completions", RequiredModelCapabilities: []string{"coding", "tool-calling"}, RecommendedContextTokens: RecommendedAgentContext},
 	)
 }
 
@@ -245,6 +246,71 @@ func OpenCodeInvocation(options ProviderOptions) (Invocation, error) {
 	return invocation, invocation.Validate()
 }
 
+// PiInvocation uses Pi's documented isolated models.json contract. The daemon
+// capability token is resolved from the child environment and is never stored
+// in the configuration file.
+func PiInvocation(options ProviderOptions) (Invocation, error) {
+	if err := validateProviderOptions(options); err != nil {
+		return Invocation{}, err
+	}
+	if err := rejectManagedArguments("pi", options.Passthrough, "--model", "--provider", "--api-key"); err != nil {
+		return Invocation{}, err
+	}
+	payload := map[string]any{"providers": map[string]any{"backpack": map[string]any{
+		"name": "Backpack Runtime", "baseUrl": strings.TrimRight(options.Endpoint, "/") + "/v1",
+		"api": "openai-completions", "apiKey": "$BACKPACK_LOOPBACK_TOKEN", "authHeader": true,
+		"models": []any{map[string]any{"id": options.Model, "name": options.Model, "reasoning": false,
+			"input": []string{"text"}, "contextWindow": options.ContextTokens,
+			"maxTokens": inference.AgentOutputTokenBudget(options.ContextTokens),
+			"cost":      map[string]float64{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+		}},
+	}}}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return Invocation{}, err
+	}
+	if err = os.MkdirAll(options.ConfigDirectory, 0700); err != nil {
+		return Invocation{}, err
+	}
+	path := filepath.Join(options.ConfigDirectory, "models.json")
+	if err = writePrivateConfiguration(path, data); err != nil {
+		return Invocation{}, err
+	}
+	managed, _ := NewArguments("--provider", "backpack", "--model", options.Model)
+	passthrough, err := NewArguments(options.Passthrough...)
+	if err != nil {
+		return Invocation{}, err
+	}
+	directory, _ := Set("PI_CODING_AGENT_DIR", options.ConfigDirectory)
+	token, _ := Secret("BACKPACK_LOOPBACK_TOKEN", options.APIKey)
+	cloudKey, _ := Unset("BACKPACK_API_KEY")
+	environment, _ := NewEnvironmentOverlay(directory, token, cloudKey)
+	invocation := Invocation{Executable: options.Executable, ManagedArguments: managed, PassthroughArguments: passthrough, Environment: environment, IsolatedConfigDirectory: options.ConfigDirectory}
+	return invocation, invocation.Validate()
+}
+
+func writePrivateConfiguration(path string, data []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".config-*.json")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err = temporary.Chmod(0600); err == nil {
+		_, err = temporary.Write(append(data, '\n'))
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
+}
+
 func validateProviderOptions(options ProviderOptions) error {
 	if options.Executable == "" {
 		return fmt.Errorf("integration executable is required")
@@ -324,14 +390,10 @@ func WriteCodexModelCatalog(options CodexCatalogOptions) error {
 }
 
 func codexModelCatalogEntry(model catalog.Model, contextTokens, priority int) map[string]any {
-	modalities := []string{"text"}
-	if hasCapability(model.Capabilities, "vision") {
-		modalities = append(modalities, "image")
-	}
 	return map[string]any{
 		"slug": model.ID, "display_name": model.DisplayName, "context_window": contextTokens,
 		"shell_type": "default", "visibility": "list", "supported_in_api": true, "priority": priority,
-		"truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "input_modalities": modalities,
+		"truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "input_modalities": []string{"text"},
 		"base_instructions": codexAgentInstructions, "support_verbosity": false, "supports_parallel_tool_calls": false,
 		"supports_reasoning_summaries": false, "supported_reasoning_levels": []any{}, "experimental_supported_tools": []any{},
 	}

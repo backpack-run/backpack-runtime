@@ -2,14 +2,8 @@
 
 Backpack Runtime source is Apache-2.0. Managed runtime bundles and model packages retain their own licenses.
 
-The compiled CLI includes [go-toml](https://github.com/pelletier/go-toml), licensed under MIT, for validating Codex App configuration without executing or interpreting it as code.
+The compiled CLI includes [go-toml](https://github.com/pelletier/go-toml), licensed under MIT, for safe Codex App configuration handling.
 
-The built-in runtime catalog currently references:
+The trusted runtime catalog references [llama.cpp](https://github.com/ggml-org/llama.cpp), licensed under MIT. Backpack records its immutable release revision, license, archive SHA-256, and installed file hashes and installs the upstream license with the runtime.
 
-- [llama.cpp](https://github.com/ggml-org/llama.cpp), licensed under MIT. Backpack installs its pinned upstream license alongside the runtime.
-- [whisper.cpp](https://github.com/ggml-org/whisper.cpp), licensed under MIT. The trusted Backpack worker bundle includes the upstream license, an Apache-2.0 license for the Backpack protocol worker, and a notice identifying both components.
-- [uv](https://github.com/astral-sh/uv), dual-licensed under Apache-2.0 or MIT. Backpack installs both pinned upstream license texts alongside the managed bootstrap executable.
-
-Backpack records the upstream project, immutable release revision, license identifier, archive SHA-256, and installed file hashes. Where an upstream attestation is available, the catalog records it too.
-
-This notice does not replace the license files shipped with a runtime or model.
+This notice does not replace license files shipped with a runtime or model.

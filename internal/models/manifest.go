@@ -19,18 +19,15 @@ type Manifest struct {
 	Runtime         *RuntimeRequirement `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 	Packages        []Package           `yaml:"packages" json:"packages"`
 	RuntimeServices []RuntimeService    `yaml:"runtime_services,omitempty" json:"runtime_services,omitempty"`
-	Pipeline        *Pipeline           `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
 }
 
 type ModelInfo struct {
-	ID               string   `yaml:"id" json:"id"`
-	DisplayName      string   `yaml:"display_name" json:"display_name"`
-	Architecture     string   `yaml:"architecture,omitempty" json:"architecture,omitempty"`
-	ContextLength    int      `yaml:"context_length" json:"context_length"`
-	Tasks            []string `yaml:"tasks,omitempty" json:"tasks,omitempty"`
-	Capabilities     []string `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
-	InputModalities  []string `yaml:"input_modalities,omitempty" json:"input_modalities,omitempty"`
-	OutputModalities []string `yaml:"output_modalities,omitempty" json:"output_modalities,omitempty"`
+	ID            string   `yaml:"id" json:"id"`
+	DisplayName   string   `yaml:"display_name" json:"display_name"`
+	Architecture  string   `yaml:"architecture,omitempty" json:"architecture,omitempty"`
+	ContextLength int      `yaml:"context_length" json:"context_length"`
+	Tasks         []string `yaml:"tasks,omitempty" json:"tasks,omitempty"`
+	Capabilities  []string `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 }
 
 func (m *ModelInfo) UnmarshalYAML(node *yaml.Node) error {
@@ -40,14 +37,12 @@ func (m *ModelInfo) UnmarshalYAML(node *yaml.Node) error {
 		Architecture        string `yaml:"architecture"`
 		ContextLength       int    `yaml:"context_length"`
 		Tasks, Capabilities []string
-		InputModalities     []string `yaml:"input_modalities"`
-		OutputModalities    []string `yaml:"output_modalities"`
 	}
 	var r raw
 	if err := node.Decode(&r); err != nil {
 		return err
 	}
-	*m = ModelInfo{ID: r.ID, DisplayName: r.DisplayName, Architecture: r.Architecture, ContextLength: r.ContextLength, Tasks: r.Tasks, Capabilities: r.Capabilities, InputModalities: r.InputModalities, OutputModalities: r.OutputModalities}
+	*m = ModelInfo{ID: r.ID, DisplayName: r.DisplayName, Architecture: r.Architecture, ContextLength: r.ContextLength, Tasks: r.Tasks, Capabilities: r.Capabilities}
 	return nil
 }
 
@@ -109,21 +104,17 @@ type Validation struct {
 	Inference string `yaml:"inference" json:"inference"`
 }
 type Package struct {
-	ID         string      `yaml:"id" json:"id"`
-	Format     string      `yaml:"format" json:"format"`
-	Precision  string      `yaml:"precision" json:"precision"`
-	Filename   string      `yaml:"filename" json:"filename"`
-	SHA256     string      `yaml:"sha256" json:"sha256"`
-	SizeBytes  int64       `yaml:"size_bytes" json:"size_bytes"`
-	Runtime    RuntimeInfo `yaml:"runtime" json:"runtime"`
-	Hardware   Hardware    `yaml:"hardware" json:"hardware"`
-	Validation Validation  `yaml:"validation" json:"validation"`
-	Files      []File      `yaml:"files,omitempty" json:"files,omitempty"`
-	Entrypoint string      `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
-	// Projector is retained for the current packager schema. New package
-	// producers may use AuxiliaryArtifacts for projectors, tokenizers, and other
-	// explicitly typed inputs.
-	Projector          *AuxiliaryArtifact  `yaml:"projector,omitempty" json:"projector,omitempty"`
+	ID                 string              `yaml:"id" json:"id"`
+	Format             string              `yaml:"format" json:"format"`
+	Precision          string              `yaml:"precision" json:"precision"`
+	Filename           string              `yaml:"filename" json:"filename"`
+	SHA256             string              `yaml:"sha256" json:"sha256"`
+	SizeBytes          int64               `yaml:"size_bytes" json:"size_bytes"`
+	Runtime            RuntimeInfo         `yaml:"runtime" json:"runtime"`
+	Hardware           Hardware            `yaml:"hardware" json:"hardware"`
+	Validation         Validation          `yaml:"validation" json:"validation"`
+	Files              []File              `yaml:"files,omitempty" json:"files,omitempty"`
+	Entrypoint         string              `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
 	AuxiliaryArtifacts []AuxiliaryArtifact `yaml:"auxiliary_artifacts,omitempty" json:"auxiliary_artifacts,omitempty"`
 }
 
@@ -136,9 +127,6 @@ func (p Package) ArtifactFiles() []File {
 
 func (p Package) RequiredFiles() []File {
 	files := append([]File(nil), p.ArtifactFiles()...)
-	if p.Projector != nil {
-		files = append(files, File{Filename: p.Projector.Filename, SHA256: p.Projector.SHA256, SizeBytes: p.Projector.SizeBytes, Role: p.Projector.Role})
-	}
 	for _, artifact := range p.AuxiliaryArtifacts {
 		files = append(files, File{Filename: artifact.Filename, SHA256: artifact.SHA256, SizeBytes: artifact.SizeBytes, Role: artifact.Role})
 	}
@@ -170,13 +158,29 @@ type RuntimeService struct {
 	Entrypoint      string   `yaml:"entrypoint" json:"entrypoint"`
 	Files           []File   `yaml:"files" json:"files"`
 }
-type Pipeline struct {
-	Engine        string `yaml:"engine" json:"engine"`
-	Version       string `yaml:"version" json:"version"`
-	PipelineClass string `yaml:"pipeline_class" json:"pipeline_class"`
-}
 
 func ParseManifest(data []byte) (*Manifest, error) {
+	var unsupported struct {
+		Model struct {
+			InputModalities  []string `yaml:"input_modalities"`
+			OutputModalities []string `yaml:"output_modalities"`
+		} `yaml:"model"`
+		Pipeline any `yaml:"pipeline"`
+		Packages []struct {
+			Projector any `yaml:"projector"`
+		} `yaml:"packages"`
+	}
+	if err := yaml.Unmarshal(data, &unsupported); err != nil {
+		return nil, fmt.Errorf("parse backpack manifest: %w", err)
+	}
+	if unsupported.Pipeline != nil || containsAnyFold(unsupported.Model.InputModalities, "image", "audio", "video") || containsAnyFold(unsupported.Model.OutputModalities, "image", "audio", "video") {
+		return nil, errors.New("media and multimodal model manifests are outside Backpack's coding-text scope")
+	}
+	for _, pkg := range unsupported.Packages {
+		if pkg.Projector != nil {
+			return nil, errors.New("multimodal projector packages are outside Backpack's coding-text scope")
+		}
+	}
 	var m Manifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse backpack manifest: %w", err)
@@ -185,6 +189,17 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		return nil, err
 	}
 	return &m, nil
+}
+
+func containsAnyFold(values []string, expected ...string) bool {
+	for _, value := range values {
+		for _, candidate := range expected {
+			if strings.EqualFold(strings.TrimSpace(value), candidate) {
+				return true
+			}
+		}
+	}
+	return false
 }
 func (m Manifest) Validate() error {
 	if m.SchemaVersion < 1 {
@@ -196,12 +211,17 @@ func (m Manifest) Validate() error {
 	if strings.TrimSpace(m.Model.ID) == "" {
 		return errors.New("manifest model.id is required")
 	}
-	if len(m.Packages) == 0 && m.Pipeline == nil {
-		return errors.New("manifest must contain packages or a pipeline")
+	if len(m.Packages) == 0 {
+		return errors.New("coding model manifest must contain executable packages")
 	}
 	for _, p := range m.Packages {
 		if p.ID == "" || (p.Runtime.Provider == "" && (m.Runtime == nil || m.Runtime.Engine == "")) {
 			return fmt.Errorf("package %q must declare id and runtime.provider", p.ID)
+		}
+		for _, artifact := range p.AuxiliaryArtifacts {
+			if strings.EqualFold(artifact.Role, "multimodal-projector") {
+				return fmt.Errorf("package %q declares multimodal projector %q; vision models are outside Backpack's coding-text scope", p.ID, artifact.Filename)
+			}
 		}
 		for _, f := range p.RequiredFiles() {
 			if f.Filename == "" || !validSHA256(f.SHA256) || f.SizeBytes <= 0 {
@@ -271,12 +291,7 @@ func (m Manifest) RuntimeFor(p Package) RuntimeRequirement {
 	}
 	e := p.Runtime.Environment
 	if e == "" {
-		switch strings.ToLower(p.Runtime.Provider) {
-		case "qwen-asr", "kokoro", "diffusers":
-			e = "isolated-python"
-		default:
-			e = "native-bundle"
-		}
+		e = "native-bundle"
 	}
 	return RuntimeRequirement{Engine: p.Runtime.Provider, Version: v, Environment: e}
 }

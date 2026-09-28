@@ -244,10 +244,7 @@ func responsesContent(raw json.RawMessage) ([]inference.ContentPart, error) {
 		case "input_text", "output_text", "text":
 			parts = append(parts, inference.ContentPart{Type: "text", Text: block.Text})
 		case "input_image":
-			if !strings.HasPrefix(strings.ToLower(block.ImageURL), "data:image/") {
-				return nil, fmt.Errorf("input_image must use an inline data:image URL")
-			}
-			parts = append(parts, inference.ContentPart{Type: "image_url", ImageURL: block.ImageURL})
+			return nil, fmt.Errorf("input_image is outside Backpack's coding-text runtime scope")
 		default:
 			return nil, fmt.Errorf("unsupported Responses content type %q", block.Type)
 		}

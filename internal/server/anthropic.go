@@ -152,12 +152,6 @@ func translateAnthropicMessage(message anthropicMessage) ([]inference.Message, e
 		ToolUseID string          `json:"tool_use_id"`
 		Content   json.RawMessage `json:"content"`
 		IsError   bool            `json:"is_error"`
-		Source    struct {
-			Type      string `json:"type"`
-			MediaType string `json:"media_type"`
-			Data      string `json:"data"`
-			URL       string `json:"url"`
-		} `json:"source"`
 	}
 	if err := json.Unmarshal(message.Content, &blocks); err != nil {
 		return nil, fmt.Errorf("message content must be text or content blocks")
@@ -192,10 +186,7 @@ func translateAnthropicMessage(message anthropicMessage) ([]inference.Message, e
 			}
 			result = append(result, inference.Message{Role: "tool", ToolCallID: block.ToolUseID, Content: []inference.ContentPart{{Type: "text", Text: text}}})
 		case "image":
-			if block.Source.Type != "base64" || block.Source.MediaType == "" || block.Source.Data == "" {
-				return nil, fmt.Errorf("only inline base64 Anthropic image sources are supported")
-			}
-			regular.Content = append(regular.Content, inference.ContentPart{Type: "image_url", ImageURL: "data:" + block.Source.MediaType + ";base64," + block.Source.Data})
+			return nil, fmt.Errorf("image content is outside Backpack's coding-text runtime scope")
 		default:
 			return nil, fmt.Errorf("unsupported Anthropic content block %q", block.Type)
 		}

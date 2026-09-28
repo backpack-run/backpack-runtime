@@ -29,14 +29,14 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode> [flags] [-- tool-args]")
+		return fmt.Errorf("usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode|pi> [flags] [-- tool-args]")
 	}
 	if args[0] == "list" {
 		return a.launchList(registry)
 	}
 	if args[0] == "doctor" {
 		if len(args) < 2 {
-			return fmt.Errorf("usage: backpack launch doctor <claude|codex|opencode> [--model model] [--compute target] [--json]")
+			return fmt.Errorf("usage: backpack launch doctor <claude|codex|opencode|pi> [--model model] [--compute target] [--json]")
 		}
 		return a.launchDoctor(ctx, registry, args[1], args[2:])
 	}
@@ -61,7 +61,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if *modelName == "" {
-		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, stdinIsTerminal())
+		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, descriptor.ID, stdinIsTerminal())
 		if selectErr != nil {
 			return selectErr
 		}
@@ -75,7 +75,10 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if !integrations.ModelSupports(descriptor, entry) {
-		return fmt.Errorf("model %q does not declare the required %q capability", entry.ID, descriptor.RequiredModelCapability)
+		return fmt.Errorf("model %q is not eligible for %s: %s", entry.ID, descriptor.DisplayName, integrations.EligibilityReason(descriptor, entry))
+	}
+	if compatibility := integrations.Compatibility(descriptor, entry); compatibility.Status == "compatible-experimental" {
+		fmt.Fprintf(a.err, "Warning: %s compatibility with %s is experimental and has not completed the full agent qualification suite.\n", entry.ID, descriptor.DisplayName)
 	}
 	resolved, err := a.models.ResolvePackage(ctx, entry)
 	if err != nil {
@@ -90,9 +93,6 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	contextCheck, _ := integrations.CheckRecommendedContext(descriptor, modelContext)
 	if contextCheck.Status != integrations.ContextRecommended {
 		fmt.Fprintf(a.err, "Warning: %s\n", contextCheck.Reason)
-	}
-	if !hasCatalogCapability(entry, "tool-calling") {
-		fmt.Fprintf(a.err, "Warning: %s is not execution-qualified for agent tool calling; this launch path is experimental.\n", entry.ID)
 	}
 	installation, err := integrations.NewDiscovery().Detect(descriptor)
 	if err != nil {
@@ -145,6 +145,8 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		}
 	case "opencode":
 		invocation, err = integrations.OpenCodeInvocation(options)
+	case "pi":
+		invocation, err = integrations.PiInvocation(options)
 	default:
 		err = fmt.Errorf("integration %q has no launch builder", descriptor.ID)
 	}
@@ -189,7 +191,7 @@ func (a *app) launchClaudeApp(ctx context.Context, args []string) error {
 		return integrations.OpenClaudeApp()
 	}
 	if *modelName == "" {
-		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, stdinIsTerminal())
+		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, "claude", stdinIsTerminal())
 		if selectErr != nil {
 			return selectErr
 		}
@@ -207,8 +209,8 @@ func (a *app) launchClaudeApp(ctx context.Context, args []string) error {
 		if resolveErr != nil {
 			return resolveErr
 		}
-		if !model.HasCapability("code") {
-			return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, "code")
+		if !model.HasCapability("code") || !model.HasCapability("tool-calling") {
+			return fmt.Errorf("cloud model %q must declare code and tool-calling capabilities", model.ID)
 		}
 		desiredContext = integrations.ResolveContextWindow(desiredContext, model.ContextWindow, integrations.RecommendedAgentContext)
 		if model.ContextWindow > 0 && desiredContext > model.ContextWindow {
@@ -220,8 +222,10 @@ func (a *app) launchClaudeApp(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !hasCatalogCapability(entry, "code") {
-			return fmt.Errorf("model %q does not declare the required %q capability", entry.ID, "code")
+		descriptor, _ := integrations.Builtins()
+		claude, _ := descriptor.Get("claude")
+		if !integrations.ModelSupports(claude, entry) {
+			return fmt.Errorf("model %q is not eligible for Claude App: %s", entry.ID, integrations.EligibilityReason(claude, entry))
 		}
 		resolved, resolveErr := a.models.ResolvePackage(ctx, entry)
 		if resolveErr != nil {
@@ -299,7 +303,7 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 		return integrations.OpenCodexApp()
 	}
 	if *modelName == "" {
-		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, stdinIsTerminal())
+		selected, selectErr := selectCodingModel(os.Stdin, a.out, a.catalog.Models, "codex", stdinIsTerminal())
 		if selectErr != nil {
 			return selectErr
 		}
@@ -317,8 +321,8 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 		if resolveErr != nil {
 			return resolveErr
 		}
-		if !model.HasCapability("code") {
-			return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, "code")
+		if !model.HasCapability("code") || !model.HasCapability("tool-calling") {
+			return fmt.Errorf("cloud model %q must declare code and tool-calling capabilities", model.ID)
 		}
 		desiredContext = integrations.ResolveContextWindow(desiredContext, model.ContextWindow, integrations.RecommendedAgentContext)
 		if model.ContextWindow > 0 && desiredContext > model.ContextWindow {
@@ -330,8 +334,10 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !hasCatalogCapability(entry, "code") {
-			return fmt.Errorf("model %q does not declare the required %q capability", entry.ID, "code")
+		descriptor, _ := integrations.Builtins()
+		codex, _ := descriptor.Get("codex")
+		if !integrations.ModelSupports(codex, entry) {
+			return fmt.Errorf("model %q is not eligible for Codex App: %s", entry.ID, integrations.EligibilityReason(codex, entry))
 		}
 		resolved, resolveErr := a.models.ResolvePackage(ctx, entry)
 		if resolveErr != nil {
@@ -398,8 +404,14 @@ func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Desc
 	if err != nil {
 		return err
 	}
-	if !model.HasCapability(descriptor.RequiredModelCapability) {
-		return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, descriptor.RequiredModelCapability)
+	for _, capability := range descriptor.RequiredModelCapabilities {
+		cloudCapability := capability
+		if capability == "coding" {
+			cloudCapability = "code"
+		}
+		if !model.HasCapability(cloudCapability) {
+			return fmt.Errorf("cloud model %q does not declare the required %q capability", model.ID, cloudCapability)
+		}
 	}
 	desiredContext := contextTokens
 	desiredContext = integrations.ResolveContextWindow(desiredContext, model.ContextWindow, descriptor.RecommendedContextTokens)
@@ -444,6 +456,8 @@ func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Desc
 		}
 	case "opencode":
 		invocation, err = integrations.OpenCodeInvocation(options)
+	case "pi":
+		invocation, err = integrations.PiInvocation(options)
 	default:
 		err = fmt.Errorf("integration %q has no launch builder", descriptor.ID)
 	}
@@ -462,22 +476,36 @@ func warnCodexWindowsSandboxFallback(output io.Writer, integrationID string) {
 }
 
 func (a *app) launchList(registry *integrations.Registry) error {
-	fmt.Fprintln(a.out, "INTEGRATION  TOOL         STATUS")
+	fmt.Fprintln(a.out, "INTEGRATION  TOOL         PROTOCOL          INSTALLATION                    ELIGIBLE MODELS")
 	discovery := integrations.NewDiscovery()
 	for _, descriptor := range registry.List() {
-		installation, err := discovery.Detect(descriptor)
+		_, err := discovery.Detect(descriptor)
 		status := "not installed"
 		if err == nil {
-			status = installation.Executable
+			status = "installed"
 		}
-		fmt.Fprintf(a.out, "%-12s %-12s %s\n", descriptor.ID, descriptor.DisplayName, status)
+		eligible := 0
+		for _, model := range a.catalog.Models {
+			if integrations.ModelSupports(descriptor, model) {
+				eligible++
+			}
+		}
+		fmt.Fprintf(a.out, "%-12s %-12s %-17s %-31s %d\n", descriptor.ID, descriptor.DisplayName, descriptor.Protocol, status, eligible)
 	}
 	status := "supported on Windows/macOS"
 	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		status = "unsupported on this platform"
 	}
-	fmt.Fprintf(a.out, "%-12s %-12s %s\n", "codex-app", "Codex App", status)
-	fmt.Fprintf(a.out, "%-12s %-12s %s\n", "claude-app", "Claude App", status)
+	for _, app := range []struct{ id, name, agent, protocol string }{{"codex-app", "Codex App", "codex", "responses"}, {"claude-app", "Claude App", "claude", "messages"}} {
+		descriptor, _ := registry.Get(app.agent)
+		eligible := 0
+		for _, model := range a.catalog.Models {
+			if integrations.ModelSupports(descriptor, model) {
+				eligible++
+			}
+		}
+		fmt.Fprintf(a.out, "%-12s %-12s %-17s %-31s %d\n", app.id, app.name, app.protocol, status, eligible)
+	}
 	return nil
 }
 
@@ -497,7 +525,7 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 	if fs.NArg() != 0 {
 		return fmt.Errorf("usage: backpack launch doctor %s [--model model] [--compute target] [--json]", integrationID)
 	}
-	report := map[string]any{"integration": descriptor.ID, "display_name": descriptor.DisplayName, "required_api": map[string]string{"claude": "Anthropic Messages /v1/messages", "codex": "OpenAI Responses /v1/responses", "opencode": "OpenAI Chat Completions /v1/chat/completions"}[descriptor.ID], "compute": *computeName, "agent_qualified": false}
+	report := map[string]any{"integration": descriptor.ID, "display_name": descriptor.DisplayName, "required_api": descriptor.Protocol, "required_capabilities": descriptor.RequiredModelCapabilities, "compute": *computeName, "agent_eligible": false, "agent_qualified": false}
 	if installation, detectErr := integrations.NewDiscovery().Detect(descriptor); detectErr == nil {
 		report["installed"] = true
 		report["executable"] = installation.Executable
@@ -530,7 +558,10 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 			} else {
 				report["model"] = cloudModelInfo.ID
 				report["model_status"] = cloudModelInfo.Status
-				report["code_capable"] = cloudModelInfo.HasCapability(descriptor.RequiredModelCapability)
+				report["code_capable"] = cloudModelInfo.HasCapability("code")
+				report["tool_calling_declared"] = cloudModelInfo.HasCapability("tool-calling")
+				report["agent_qualified"] = cloudModelInfo.Status == "available" && cloudModelInfo.HasCapability("code") && cloudModelInfo.HasCapability("tool-calling")
+				report["agent_eligible"] = report["agent_qualified"]
 				report["context_tokens"] = cloudModelInfo.ContextWindow
 				report["model_installed"] = "not-applicable"
 			}
@@ -540,13 +571,27 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 				report["model_error"] = resolveErr.Error()
 			} else {
 				report["model"] = entry.ID
-				report["code_capable"] = integrations.ModelSupports(descriptor, entry)
+				report["code_capable"] = hasCatalogCapability(entry, "coding")
 				report["tool_calling_declared"] = hasCatalogCapability(entry, "tool-calling")
-				_, installedErr := a.models.Installed(entry.ID)
+				compatibility := integrations.Compatibility(descriptor, entry)
+				report["compatibility_status"] = compatibility.Status
+				report["compatibility_reason"] = compatibility.Reason
+				report["agent_eligible"] = integrations.ModelSupports(descriptor, entry)
+				if reason := integrations.EligibilityReason(descriptor, entry); reason != "" {
+					report["eligibility_error"] = reason
+				}
+				report["agent_qualified"] = compatibility.Status == "qualified"
+				installed, installedErr := a.models.Installed(entry.ID)
 				report["model_installed"] = installedErr == nil
-				if resolved, metadataErr := a.models.ResolvePackage(ctx, entry); metadataErr == nil {
-					report["context_tokens"] = resolved.Manifest.Model.ContextLength
-					check, _ := integrations.CheckRecommendedContext(descriptor, resolved.Manifest.Model.ContextLength)
+				resolved := installed
+				var metadataErr error
+				if resolved == nil {
+					resolved, metadataErr = a.models.ResolvePackage(ctx, entry)
+				}
+				if metadataErr == nil {
+					contextTokens := resolved.Manifest.Model.ContextLength
+					report["context_tokens"] = contextTokens
+					check, _ := integrations.CheckRecommendedContext(descriptor, contextTokens)
 					report["context_status"] = check.Status
 					report["context_reason"] = check.Reason
 				} else {
@@ -582,7 +627,7 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 		fmt.Fprintln(a.out, string(data))
 		return nil
 	}
-	keys := []string{"integration", "installed", "version", "executable", "required_api", "model", "model_installed", "code_capable", "tool_calling_declared", "context_tokens", "context_status", "compute", "compute_configured", "daemon_running", "daemon_endpoint", "config_isolated", "routing_conflicts_overridden", "agent_qualified"}
+	keys := []string{"integration", "installed", "version", "executable", "required_api", "model", "model_installed", "code_capable", "tool_calling_declared", "compatibility_status", "eligibility_error", "context_tokens", "context_status", "compute", "compute_configured", "daemon_running", "daemon_endpoint", "config_isolated", "routing_conflicts_overridden", "agent_eligible", "agent_qualified"}
 	for _, key := range keys {
 		if value, exists := report[key]; exists {
 			fmt.Fprintf(a.out, "%-24s %v\n", key+":", value)
@@ -600,15 +645,25 @@ func (a *app) targetStore() interface {
 	return compute.NewTargetStore(a.paths)
 }
 
-func selectCodingModel(input io.Reader, output io.Writer, models []catalog.Model, interactive bool) (string, error) {
-	items := integrations.FilterCodingModels(models)
+func selectCodingModel(input io.Reader, output io.Writer, models []catalog.Model, agentID string, interactive bool) (string, error) {
+	registry, _ := integrations.Builtins()
+	descriptor, err := registry.Get(agentID)
+	if err != nil {
+		return "", err
+	}
+	items := make([]catalog.Model, 0)
+	for _, model := range models {
+		if integrations.ModelSupports(descriptor, model) {
+			items = append(items, model)
+		}
+	}
 	if len(items) == 0 {
-		return "", fmt.Errorf("the trusted catalog contains no models with an explicit code capability")
+		return "", fmt.Errorf("the trusted catalog contains no models eligible for %s", descriptor.DisplayName)
 	}
 	if !interactive {
 		return "", fmt.Errorf("--model is required when stdin is not an interactive terminal")
 	}
-	fmt.Fprintln(output, "Choose a code-capable Backpack model (agent tool calling may still be unqualified):")
+	fmt.Fprintf(output, "Choose a Backpack model eligible for %s:\n", descriptor.DisplayName)
 	for index, model := range items {
 		fmt.Fprintf(output, "  %d. %-32s %s\n", index+1, model.ID, model.Status)
 	}
@@ -656,6 +711,8 @@ func integrationInstallInstructions(id string) string {
 		return "Install Codex CLI from the official package: npm install -g @openai/codex"
 	case "opencode":
 		return "Install OpenCode from the official instructions: https://opencode.ai/docs/"
+	case "pi":
+		return "Install Pi from the official package: npm install -g --ignore-scripts @earendil-works/pi-coding-agent"
 	default:
 		return "Install the integration tool from its official source and ensure it is on PATH."
 	}

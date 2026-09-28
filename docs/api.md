@@ -1,38 +1,33 @@
-# API
+# Coding-agent API
 
-Public compatibility expectations are defined in [compatibility-policy.md](compatibility-policy.md). Alpha payloads may change with release notes; the `/api/backpack/v1` prefix is a routing version, not yet a beta stability promise.
+Backpack exposes a loopback-only service. The API is designed around coding-agent interoperability, not general modality coverage.
 
-Implemented loopback endpoints:
+## Protocol endpoints
+
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/messages`
+
+Chat Completions supports streaming and non-streaming text inference. Responses and Messages implement the documented subsets required by the launch integrations. Their translators cover system/developer/user/assistant/tool roles, function definitions and calls, tool results, usage, stop reasons, streaming events, and errors where the underlying model/runtime supports them.
+
+Computer-use tools, image input, audio, speech, and media-job semantics are outside the current scope and return errors or have no route. Backpack does not fabricate tool use or structured output for a model whose trusted capabilities do not declare it.
+
+See [Responses compatibility](openai-responses-compatibility.md) and [Messages compatibility](anthropic-compatibility.md) for exact supported shapes.
+
+## Backpack management endpoints
 
 - `GET /api/backpack/v1/health`
 - `GET /api/backpack/v1/version`
 - `GET /api/backpack/v1/hardware`
 - `GET /api/backpack/v1/models`
-- `GET /api/backpack/v1/cloud/models` (requires the private local-daemon bearer token)
+- `GET /api/backpack/v1/cloud/models`
 - `GET /api/backpack/v1/compute`
-- `GET /api/backpack/v1/sessions`
-- `GET /api/backpack/v1/events` (structured server-sent events)
-- `GET|POST /api/backpack/v1/jobs`
-- `GET|DELETE /api/backpack/v1/jobs/{id}`
-- `GET /api/backpack/v1/jobs/{id}/artifacts/{artifact}`
-- `POST /api/backpack/v1/sessions`
-- `GET /api/backpack/v1/sessions/{id}`
-- `DELETE /api/backpack/v1/sessions/{id}`
-- `GET /v1/models`
-- `POST /v1/chat/completions` (streaming SSE and non-streaming)
-- `POST /v1/responses` (experimental Codex-oriented Responses subset)
-- `POST /v1/messages` (experimental Claude Code-oriented Anthropic Messages subset)
-- `POST /v1/audio/transcriptions` (multipart `file`, `model`, optional `language`, `compute`, `force`)
-- `POST /v1/audio/speech` (JSON `model`, `input`, optional `voice`, `speed`, `format`, `compute`, `force`)
+- `GET|POST /api/backpack/v1/sessions`
+- `GET|DELETE /api/backpack/v1/sessions/{id}`
+- `GET /api/backpack/v1/events`
+- `POST /api/backpack/v1/shutdown`
 
-Job creation returns `202 Accepted`; only execution-validated runners may accept work. Job artifacts are served only after confinement and existence checks. Non-loopback binding is rejected until authentication is implemented.
+Requests reuse a compatible ready session or create one through `Model x RuntimeAdapter x ComputeTarget`. Structured events describe model/runtime preparation, session state, downloads, and failures; they contain data rather than terminal formatting.
 
-Chat requests resolve catalog aliases. A ready session for the requested model is reused; otherwise the service creates a local session. Management clients choose another compute target when creating a session, after which standard chat can reuse it by model alias.
-
-Transcription uses the same endpoint for native whisper.cpp and isolated-Python qwen-asr models. Speech currently returns `audio/wav`. API clients receive structured JSON errors; engine-specific worker endpoints remain private loopback implementation details.
-
-OpenAI-compatible chat content arrays may include `image_url` parts. Backpack accepts inline `data:image/...` URLs only; HTTP(S) and filesystem URLs are rejected. A typed, verified `multimodal-projector` package artifact is mandatory. This contract is experimental pending real Backpack Devstral validation.
-
-The Responses and Anthropic handlers translate through a protocol-neutral inference contract; runtime adapters do not contain client-specific wire types. See [OpenAI Responses compatibility](openai-responses-compatibility.md) and [Anthropic Messages compatibility](anthropic-compatibility.md) for the deliberately limited subsets and qualification status.
-
-Requests whose model ID ends in `:cloud` are forwarded without lossy protocol translation to the corresponding Backpack Cloud endpoint. Cloud model discovery is live, and Cloud requests require both a configured Cloud credential and the random bearer token for the local daemon. The daemon replaces—not forwards—that local credential when authenticating upstream. See [Backpack Cloud](cloud.md).
+The server rejects non-loopback binds. Launch integrations use random per-daemon bearer credentials; upstream Cloud credentials remain inside Backpack and are not passed to agents.

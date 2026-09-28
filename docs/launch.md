@@ -4,12 +4,13 @@ Backpack can configure and start an installed third-party coding agent while ret
 
 ```console
 backpack launch list
-backpack launch doctor codex --model qwen3-coder-next
-backpack launch codex --model qwen3-coder-next
-backpack launch codex-app --model qwen3-coder-next
-backpack launch claude --model qwen3-coder-next
-backpack launch claude-app --model qwen3-coder-next
-backpack launch opencode --model qwen3-coder-next
+backpack launch doctor codex --model qwen3-coder-30b-a3b
+backpack launch codex --model qwen3-coder-30b-a3b
+backpack launch codex-app --model qwen3-coder-30b-a3b
+backpack launch claude --model qwen3-coder-30b-a3b
+backpack launch claude-app --model qwen3-coder-30b-a3b
+backpack launch opencode --model qwen3-coder-30b-a3b
+backpack launch pi --model qwen3-coder-30b-a3b
 ```
 
 Local and SSH launch paths require no Backpack login. The current optional private-preview Cloud compatibility path is selected with a live API-reported `:cloud` ID after `backpack login`:
@@ -27,7 +28,7 @@ The suffix is transitional and is not the intended durable model identity. The f
 
 The launch feature is experimental. The compatibility protocols and installed Codex and Claude Code executables have passed real Cloud tool-loop tests with Qwen3-Coder 30B A3B. Codex executed a PowerShell location command and continued from its result. Claude Code executed a Bash location command and continued from its result. The tests used the agents' normal permission controls; no permission-bypass flags were added. OpenCode still has deterministic provider/config coverage but has not completed the same real-binary qualification on this host.
 
-Only catalog models with an explicit `code` capability are selectable. A `tool-calling` capability is reported separately and is required before a model can be called agent-qualified. With no `--model`, an interactive terminal gets a selector; scripts must specify the model.
+Selection is agent-specific. The model must declare every required capability (currently `coding` and `tool-calling`), support the agent's wire protocol, and carry an explicit `qualified` or `compatible-experimental` entry for that agent. With no `--model`, an interactive terminal gets an eligible-model selector; scripts must specify the model. See [agent model qualification](agent-model-qualification.md).
 
 `--compute` selects a Backpack compute target. The external agent always talks to the local loopback Backpack service; SSH routing stays behind that API. By default Backpack advertises the largest execution-qualified context declared by the selected package or Cloud deployment. `--context` may lower it but cannot exceed that trusted limit. A model's larger theoretical/native window is not advertised until the actual backend has qualified it. Claude Code receives the same value as its automatic compaction boundary. Backpack also bounds Claude's per-turn output reservation to one quarter of that window, up to 8192 tokens. This prevents Claude Code's 32K first-party default from consuming the entire context window of a 32K open model before its instructions and tool schemas are counted.
 
@@ -37,7 +38,7 @@ Arguments after `--` are passed literally to the external executable without a s
 backpack launch codex --model qwen3-coder-next -- --help
 ```
 
-Backpack does not install external agents automatically. Missing tools produce official installation guidance. `--keep-alive` retains the model session after the agent exits; otherwise Backpack requests a graceful session stop.
+Backpack does not install external agents automatically. Missing tools produce official installation guidance. `--keep-alive` retains the model session after the agent exits; otherwise Backpack requests a graceful session stop. Pi uses an isolated `PI_CODING_AGENT_DIR` containing an official `models.json` custom-provider definition; OpenCode uses its supported inline provider configuration. Neither launcher mutates the user's normal configuration.
 
 Codex keeps its normal user-level `CODEX_HOME`; Backpack applies provider routing with higher-precedence command-line overrides and never edits the user's CLI config. On native Windows, Backpack-launched Codex uses OpenAI's documented `windows.sandbox="unelevated"` fallback because current Codex builds can fail before command execution while refreshing the preferred elevated sandbox. The fallback still applies ACL-based filesystem restrictions, but its user and network isolation are weaker than the elevated implementation. This override is limited to the launched child and does not change the user's Codex configuration.
 

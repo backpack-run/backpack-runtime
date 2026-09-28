@@ -7,10 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -36,79 +33,15 @@ type CreateSessionRequest struct {
 	Compute string         `json:"compute,omitempty"`
 	Options SessionOptions `json:"options,omitempty"`
 }
-type Transcription struct {
-	Text     string `json:"text"`
-	Language string `json:"language,omitempty"`
-	Model    string `json:"model"`
-}
-type TranscriptionRequest struct {
-	Model, AudioPath, Language, Compute string
-	Force                               bool
-}
-type SpeechRequest struct {
-	Model, Input, Voice, Format, Compute string
-	Speed                                float64
-	Force                                bool
-}
 type Event struct {
 	Type       string    `json:"type"`
 	Kind       string    `json:"kind"`
-	JobID      string    `json:"job_id,omitempty"`
 	ModelID    string    `json:"model_id,omitempty"`
 	Message    string    `json:"message,omitempty"`
 	Current    int64     `json:"current,omitempty"`
 	Total      int64     `json:"total,omitempty"`
 	Percentage float64   `json:"percentage,omitempty"`
 	At         time.Time `json:"at"`
-}
-type JobProgress struct {
-	Step    int    `json:"step,omitempty"`
-	Total   int    `json:"total,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-type Artifact struct {
-	ID              string    `json:"id"`
-	MediaType       string    `json:"media_type"`
-	Filename        string    `json:"filename"`
-	SizeBytes       int64     `json:"size_bytes"`
-	Format          string    `json:"format"`
-	Width           int       `json:"width,omitempty"`
-	Height          int       `json:"height,omitempty"`
-	DurationSeconds float64   `json:"duration_seconds,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-}
-type Job struct {
-	ID             string       `json:"id"`
-	Model          string       `json:"model"`
-	Capability     string       `json:"capability"`
-	RuntimeAdapter string       `json:"runtime_adapter"`
-	Compute        string       `json:"compute"`
-	Status         string       `json:"status"`
-	CreatedAt      time.Time    `json:"created_at"`
-	StartedAt      *time.Time   `json:"started_at,omitempty"`
-	EndedAt        *time.Time   `json:"ended_at,omitempty"`
-	Progress       *JobProgress `json:"progress,omitempty"`
-	Artifacts      []Artifact   `json:"artifacts,omitempty"`
-	Error          string       `json:"error,omitempty"`
-}
-type JobInput struct {
-	Prompt string `json:"prompt"`
-	Image  string `json:"image,omitempty"`
-}
-type JobOptions struct {
-	Width  int     `json:"width,omitempty"`
-	Height int     `json:"height,omitempty"`
-	Steps  int     `json:"steps,omitempty"`
-	Frames int     `json:"frames,omitempty"`
-	Seed   *int64  `json:"seed,omitempty"`
-	FPS    float64 `json:"fps,omitempty"`
-}
-type CreateJobRequest struct {
-	Model      string     `json:"model"`
-	Capability string     `json:"capability"`
-	Compute    string     `json:"compute,omitempty"`
-	Input      JobInput   `json:"input"`
-	Options    JobOptions `json:"options,omitempty"`
 }
 type CloudModel struct {
 	ID            string         `json:"id"`
@@ -173,26 +106,6 @@ func (c *Client) GetSession(ctx context.Context, id string) (*Session, error) {
 func (c *Client) StopSession(ctx context.Context, id string) error {
 	return c.json(ctx, http.MethodDelete, "/api/backpack/v1/sessions/"+id, nil, nil)
 }
-func (c *Client) Jobs(ctx context.Context) ([]Job, error) {
-	var out struct {
-		Data []Job `json:"data"`
-	}
-	err := c.json(ctx, http.MethodGet, "/api/backpack/v1/jobs", nil, &out)
-	return out.Data, err
-}
-func (c *Client) CreateJob(ctx context.Context, request CreateJobRequest) (*Job, error) {
-	var out Job
-	err := c.json(ctx, http.MethodPost, "/api/backpack/v1/jobs", request, &out)
-	return &out, err
-}
-func (c *Client) GetJob(ctx context.Context, id string) (*Job, error) {
-	var out Job
-	err := c.json(ctx, http.MethodGet, "/api/backpack/v1/jobs/"+id, nil, &out)
-	return &out, err
-}
-func (c *Client) CancelJob(ctx context.Context, id string) error {
-	return c.json(ctx, http.MethodDelete, "/api/backpack/v1/jobs/"+id, nil, nil)
-}
 func (c *Client) CloudModels(ctx context.Context) ([]CloudModel, error) {
 	var out struct {
 		Object string       `json:"object"`
@@ -255,76 +168,6 @@ func (c *Client) Chat(ctx context.Context, model, prompt string, stream bool, on
 		}
 	}
 	return scanner.Err()
-}
-func (c *Client) Transcribe(ctx context.Context, request TranscriptionRequest) (*Transcription, error) {
-	file, err := os.Open(request.AudioPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	var body bytes.Buffer
-	form := multipart.NewWriter(&body)
-	part, err := form.CreateFormFile("file", filepath.Base(request.AudioPath))
-	if err != nil {
-		return nil, err
-	}
-	if _, err = io.Copy(part, file); err != nil {
-		return nil, err
-	}
-	_ = form.WriteField("model", request.Model)
-	if request.Language != "" {
-		_ = form.WriteField("language", request.Language)
-	}
-	if request.Compute != "" {
-		_ = form.WriteField("compute", request.Compute)
-	}
-	if request.Force {
-		_ = form.WriteField("force", "true")
-	}
-	if err = form.Close(); err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/audio/transcriptions", &body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", form.FormDataContentType())
-	c.authorize(req)
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode/100 != 2 {
-		return nil, responseError(res)
-	}
-	var out Transcription
-	if err = json.NewDecoder(res.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-func (c *Client) Speech(ctx context.Context, request SpeechRequest) ([]byte, error) {
-	payload := map[string]any{"model": request.Model, "input": request.Input, "voice": request.Voice, "format": request.Format, "compute": request.Compute, "speed": request.Speed, "force": request.Force}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/audio/speech", bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.authorize(req)
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode/100 != 2 {
-		return nil, responseError(res)
-	}
-	return io.ReadAll(io.LimitReader(res.Body, 512<<20))
 }
 func (c *Client) Events(ctx context.Context, onEvent func(Event)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/backpack/v1/events", nil)

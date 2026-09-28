@@ -52,9 +52,8 @@ type Message struct {
 }
 
 type ContentPart struct {
-	Type     string
-	Text     string
-	ImageURL string
+	Type string
+	Text string
 }
 
 type Tool struct {
@@ -114,8 +113,6 @@ func (r Request) ChatCompletionsBody(stream bool) ([]byte, error) {
 				switch part.Type {
 				case "text":
 					parts = append(parts, map[string]any{"type": "text", "text": part.Text})
-				case "image_url":
-					parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{"url": part.ImageURL}})
 				default:
 					return nil, fmt.Errorf("unsupported content part %q", part.Type)
 				}

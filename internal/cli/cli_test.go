@@ -31,16 +31,23 @@ func TestConventionalVersionFlags(t *testing.T) {
 	}
 }
 
-func TestModelsJSONIsMachineReadableAndComplete(t *testing.T) {
+func TestModelsJSONIsMachineReadableAndHidesTestFixturesByDefault(t *testing.T) {
 	t.Setenv("BACKPACK_HOME", t.TempDir())
 	var output bytes.Buffer
 	if err := Run(context.Background(), []string{"models", "--json"}, &output, &output, "test"); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"catalog_version"`, `"smollm2-135m"`, `"installed": false`} {
+	for _, expected := range []string{`"catalog_version"`, `"qwen3-coder-30b-a3b"`, `"compatible_agents"`, `"installed": false`} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("models JSON missing %s: %s", expected, output.String())
 		}
+	}
+	if strings.Contains(output.String(), "smollm2-135m") {
+		t.Fatalf("default catalog exposed internal test fixture: %s", output.String())
+	}
+	output.Reset()
+	if err := Run(context.Background(), []string{"models", "--json", "--all"}, &output, &output, "test"); err != nil || !strings.Contains(output.String(), "smollm2-135m") {
+		t.Fatalf("--all did not expose test fixture: %v %s", err, output.String())
 	}
 }
 

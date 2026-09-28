@@ -152,7 +152,7 @@ func TestCompatibilityEndpointsRejectUnsupportedSemantics(t *testing.T) {
 		want string
 	}{
 		{"/v1/responses", `{"model":"coder","input":"x","tools":[{"type":"computer","name":"desktop"}]}`, "unsupported Responses tool type"},
-		{"/v1/messages", `{"model":"coder","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}}]}]}`, "only inline base64"},
+		{"/v1/messages", `{"model":"coder","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}}]}]}`, "coding-text runtime scope"},
 	}
 	for _, test := range tests {
 		w := httptest.NewRecorder()

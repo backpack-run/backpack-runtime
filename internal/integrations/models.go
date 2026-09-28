@@ -7,12 +7,12 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 )
 
-// FilterCodingModels requires the explicit "code" capability. Names, aliases,
+// FilterCodingModels requires the explicit "coding" capability. Names, aliases,
 // architecture, and runtime engine are deliberately not used as heuristics.
 func FilterCodingModels(models []catalog.Model) []catalog.Model {
 	result := make([]catalog.Model, 0, len(models))
 	for _, model := range models {
-		if hasCapability(model.Capabilities, "code") {
+		if hasCapability(model.Capabilities, "coding") {
 			result = append(result, cloneModel(model))
 		}
 	}
@@ -20,7 +20,33 @@ func FilterCodingModels(models []catalog.Model) []catalog.Model {
 }
 
 func ModelSupports(descriptor Descriptor, model catalog.Model) bool {
-	return hasCapability(model.Capabilities, descriptor.RequiredModelCapability)
+	return EligibilityReason(descriptor, model) == ""
+}
+
+func EligibilityReason(descriptor Descriptor, model catalog.Model) string {
+	for _, capability := range descriptor.RequiredModelCapabilities {
+		if !hasCapability(model.Capabilities, capability) {
+			return fmt.Sprintf("missing required %q capability", capability)
+		}
+	}
+	compatibility, ok := model.Agents[descriptor.ID]
+	if !ok {
+		return fmt.Sprintf("no trusted compatibility record exists for %s", descriptor.DisplayName)
+	}
+	if compatibility.Status != "qualified" && compatibility.Status != "compatible-experimental" {
+		if strings.TrimSpace(compatibility.Reason) != "" {
+			return compatibility.Reason
+		}
+		return fmt.Sprintf("compatibility status is %q", compatibility.Status)
+	}
+	if !strings.EqualFold(compatibility.Protocol, descriptor.Protocol) {
+		return fmt.Sprintf("model is qualified for %s, but %s requires %s", compatibility.Protocol, descriptor.DisplayName, descriptor.Protocol)
+	}
+	return ""
+}
+
+func Compatibility(descriptor Descriptor, model catalog.Model) catalog.AgentCompatibility {
+	return model.Agents[descriptor.ID]
 }
 
 func hasCapability(capabilities []string, required string) bool {

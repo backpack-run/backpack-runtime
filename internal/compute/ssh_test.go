@@ -102,18 +102,18 @@ func TestSSHStagesContentAddressedInputAndRunsWithoutTunnel(t *testing.T) {
 	target.Runner = runner
 	target.Rsync = ""
 	input := filepath.Join(t.TempDir(), "sample.wav")
-	if err := os.WriteFile(input, []byte("audio"), 0600); err != nil {
+	if err := os.WriteFile(input, []byte("payload"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	remote, err := target.PrepareFile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256([]byte("audio"))
+	sum := sha256.Sum256([]byte("payload"))
 	if !strings.Contains(remote, fmt.Sprintf("inputs/%x.wav", sum)) {
 		t.Fatalf("remote input %q", remote)
 	}
-	if _, err = target.Execute(context.Background(), Command{Executable: "whisper-cli", Args: []string{"--file", remote}}); err != nil {
+	if _, err = target.Execute(context.Background(), Command{Executable: "coding-worker", Args: []string{"--file", remote}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := runner.started[len(runner.started)-1]; strings.Contains(got, " -L ") {

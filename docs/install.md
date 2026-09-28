@@ -1,6 +1,6 @@
 # Install Backpack Runtime
 
-Official release archives contain one `backpack` executable. Go, llama.cpp, whisper.cpp, uv, and Python do not need to be installed globally; Backpack installs trusted runtime bundles when a model first needs them.
+Official release archives contain one `backpack` executable. Go and llama.cpp do not need to be installed globally; Backpack installs the trusted llama.cpp bundle when a coding model first needs it.
 
 ## Installer behavior
 
@@ -23,8 +23,8 @@ Invoke-WebRequest https://backpack.run/install.ps1 -OutFile install.ps1
 Get-Content .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Channel stable
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.1.0-alpha.1
-$env:BACKPACK_VERSION = 'v0.1.0-alpha.1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.3.0-alpha.1
+$env:BACKPACK_VERSION = 'v0.3.0-alpha.1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 $env:BACKPACK_MODIFY_PATH = '0'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -NoModifyPath
 ```
@@ -45,8 +45,8 @@ curl --fail --proto '=https' --proto-redir '=https' --tlsv1.2 \
 less install.sh
 sh install.sh
 BACKPACK_CHANNEL=stable sh install.sh
-sh install.sh v0.1.0-alpha.1
-BACKPACK_VERSION=v0.1.0-alpha.1 sh install.sh
+sh install.sh v0.3.0-alpha.1
+BACKPACK_VERSION=v0.3.0-alpha.1 sh install.sh
 BACKPACK_MODIFY_PATH=0 sh install.sh
 ```
 
@@ -72,7 +72,7 @@ Set `BACKPACK_MODIFY_PATH=0` on either platform, or pass `-NoModifyPath` on Wind
 
 SHA-256 binds an archive to the checksum file, but both files share the GitHub Release trust boundary. Tagged releases additionally receive GitHub artifact attestations. See [Release provenance](release-provenance.md) for verification and trust assumptions.
 
-The immutable `v0.1.0-alpha.1` PowerShell installer has a PowerShell 5.1 reinstall limitation. Remove its existing destination binary before reinstalling that exact version. The installer on later release tags uses a backup-assisted atomic replacement.
+The immutable `v0.1.0-alpha.1` PowerShell installer has a PowerShell 5.1 reinstall limitation. That historical limitation is fixed in current releases through backup-assisted atomic replacement.
 
 See [Uninstall](uninstall.md) to remove the executable or Backpack-managed data.
 

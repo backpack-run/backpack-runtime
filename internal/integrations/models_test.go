@@ -8,9 +8,9 @@ import (
 
 func TestCodingModelsRequireExplicitCapability(t *testing.T) {
 	models := []catalog.Model{
-		{ID: "coder-by-name-only", Capabilities: []string{"chat"}},
-		{ID: "ordinary-name", Capabilities: []string{"chat", "CODE"}, Aliases: []string{"original"}},
-		{ID: "vision", Capabilities: []string{"vision"}},
+		{ID: "coder-by-name-only", Capabilities: []string{"text"}},
+		{ID: "ordinary-name", Capabilities: []string{"text", "CODING"}, Aliases: []string{"original"}},
+		{ID: "text-only", Capabilities: []string{"text"}},
 	}
 	filtered := FilterCodingModels(models)
 	if len(filtered) != 1 || filtered[0].ID != "ordinary-name" {
@@ -21,8 +21,12 @@ func TestCodingModelsRequireExplicitCapability(t *testing.T) {
 		t.Fatal("filter returned shared model slices")
 	}
 	descriptor := testDescriptor("agent")
+	models[1].Agents = map[string]catalog.AgentCompatibility{"agent": {Status: "qualified", Protocol: "responses"}}
 	if ModelSupports(descriptor, models[0]) || !ModelSupports(descriptor, models[1]) {
 		t.Fatal("descriptor capability check used something other than explicit capabilities")
+	}
+	if reason := EligibilityReason(descriptor, models[0]); reason != `missing required "coding" capability` {
+		t.Fatalf("unexpected eligibility reason %q", reason)
 	}
 }
 

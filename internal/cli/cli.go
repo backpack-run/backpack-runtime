@@ -7,8 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/backpack-run/backpack-runtime/internal/adapters/llamacpp"
-	"github.com/backpack-run/backpack-runtime/internal/adapters/pythonworker"
-	"github.com/backpack-run/backpack-runtime/internal/adapters/whispercpp"
 	"github.com/backpack-run/backpack-runtime/internal/catalog"
 	"github.com/backpack-run/backpack-runtime/internal/catalogverify"
 	"github.com/backpack-run/backpack-runtime/internal/cloud"
@@ -18,9 +16,7 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/diagnostics"
 	"github.com/backpack-run/backpack-runtime/internal/events"
 	"github.com/backpack-run/backpack-runtime/internal/fit"
-	"github.com/backpack-run/backpack-runtime/internal/jobs"
 	"github.com/backpack-run/backpack-runtime/internal/models"
-	"github.com/backpack-run/backpack-runtime/internal/pythonruntime"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
 	"github.com/backpack-run/backpack-runtime/internal/runtimebundle"
 	"github.com/backpack-run/backpack-runtime/internal/server"
@@ -29,7 +25,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -44,9 +39,6 @@ type app struct {
 	models   *models.Manager
 	local    compute.Local
 	llama    *llamacpp.Adapter
-	whisper  *whispercpp.Adapter
-	qwenASR  *pythonworker.Adapter
-	kokoro   *pythonworker.Adapter
 	runtimes *runtimebundle.Manager
 	registry *backruntime.Registry
 	cloud    *cloud.Client
@@ -71,12 +63,8 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		cloudClient = cloud.Unavailable(paths, err)
 	}
 	llama := &llamacpp.Adapter{Paths: paths, Runtimes: runtimes}
-	whisper := &whispercpp.Adapter{Paths: paths, Runtimes: runtimes}
-	pythonEnvironments := &pythonruntime.Manager{Paths: paths, Runtimes: runtimes}
-	qwenASR := &pythonworker.Adapter{Engine: "qwen-asr", Provides: []string{"transcription"}, Paths: paths, Environments: pythonEnvironments}
-	kokoro := &pythonworker.Adapter{Engine: "kokoro", Provides: []string{"speech"}, Paths: paths, Environments: pythonEnvironments}
-	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, whisper: whisper, qwenASR: qwenASR, kokoro: kokoro, runtimes: runtimes, cloud: cloudClient}
-	a.registry = backruntime.NewRegistry(llama, whisper, qwenASR, kokoro)
+	a := &app{out: out, err: errOut, version: version, catalog: c, paths: paths, models: manager, local: compute.Local{}, llama: llama, runtimes: runtimes, cloud: cloudClient}
+	a.registry = backruntime.NewRegistry(llama)
 	if len(args) == 0 {
 		return a.landing(ctx)
 	}
@@ -113,10 +101,6 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.logout(args[1:])
 	case "cloud":
 		return a.cloudCommand(ctx, args[1:])
-	case "transcribe":
-		return a.transcribe(ctx, args[1:])
-	case "speak":
-		return a.speak(ctx, args[1:])
 	case "serve":
 		return a.serve(ctx, args[1:], false)
 	case "ps":
@@ -131,12 +115,6 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		return a.doctor(ctx, args[1:])
 	case "update":
 		return a.update(ctx, args[1:])
-	case "jobs":
-		return a.jobsCommand(ctx, args[1:])
-	case "image":
-		return a.mediaJob(ctx, "image-generation", args[1:])
-	case "video":
-		return a.mediaJob(ctx, "video-generation", args[1:])
 	case "_daemon":
 		return a.serve(ctx, args[1:], true)
 	default:
@@ -146,31 +124,26 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 
 func (a *app) commandHelp(command string) error {
 	usage := map[string]string{
-		"models":     "Usage: backpack models [--json]\n\nList the trusted model catalog, installed state, and locally known size/fit.\n",
-		"model":      "Usage: backpack model show <model>\n\nShow trusted package, runtime, and local-fit details.\n",
-		"catalog":    "Usage: backpack catalog verify [--json]\n\nCompare the trusted catalog with public Backpack packages on Hugging Face.\n",
-		"pull":       "Usage: backpack pull <model>\n\nResolve, download, verify, and atomically install a model package.\n",
-		"list":       "Usage: backpack list\n\nList installed model packages.\n",
-		"inspect":    "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
-		"hardware":   "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
-		"run":        "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
-		"launch":     "Usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode> [options] [-- tool-args]\n\nExperimental: launches coding agents through Backpack. App setup is persistent; restore it with `backpack launch <codex-app|claude-app> --restore`.\n",
-		"login":      "Usage: backpack login [--name device-name] [--no-browser]\n\nOptionally authorize this device for Backpack Cloud. Open-source Backpack requires no account.\n",
-		"logout":     "Usage: backpack logout\n\nRemove the local Backpack Cloud device credential.\n",
-		"cloud":      "Usage: backpack cloud <status|models> [--json]\n\nInspect Backpack Cloud authentication and live model availability.\n",
-		"transcribe": "Usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target] [--force]\n",
-		"speak":      "Usage: backpack speak <text> --output file.wav [--model model] [--voice voice] [--speed n] [--compute target] [--force]\n",
-		"serve":      "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
-		"ps":         "Usage: backpack ps\n\nList service-owned runtime sessions.\n",
-		"stop":       "Usage: backpack stop <session-id>\n\nGracefully stop one exact session.\n",
-		"compute":    "Usage: backpack compute <list|add|show|test|doctor|remove> [arguments]\n",
-		"runtime":    "Usage: backpack runtime <list|show|install|verify|remove> [arguments]\n",
-		"doctor":     "Usage: backpack doctor [--json]\n\nPrint sanitized local diagnostics suitable for bug reports.\n",
-		"update":     "Usage: backpack update [--check] [--version version | --prerelease]\n\nExplicitly check for or install a SHA-256-verified GitHub release. Stable releases are selected by default.\n",
-		"jobs":       "Usage: backpack jobs <list|show|cancel> [arguments] [--json]\n",
-		"image":      "Usage: backpack image <model> --prompt text [--width n] [--height n] [--steps n] [--seed n] [--compute target]\n\nExperimental: submission requires an execution-validated image runner.\n",
-		"video":      "Usage: backpack video <model> --prompt text [--image path] [--frames n] [--fps n] [--steps n] [--seed n] [--compute target]\n\nExperimental: submission requires an execution-validated video runner.\n",
-		"version":    "Usage: backpack version\n",
+		"models":   "Usage: backpack models [--json] [--all]\n\nList the curated coding-model catalog. --all also includes internal test fixtures.\n",
+		"model":    "Usage: backpack model show <model>\n\nShow trusted package, runtime, and local-fit details.\n",
+		"catalog":  "Usage: backpack catalog verify [--json]\n\nCompare the trusted catalog with public Backpack packages on Hugging Face.\n",
+		"pull":     "Usage: backpack pull <model>\n\nResolve, download, verify, and atomically install a model package.\n",
+		"list":     "Usage: backpack list\n\nList installed model packages.\n",
+		"inspect":  "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
+		"hardware": "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
+		"run":      "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
+		"launch":   "Usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode|pi> [options] [-- tool-args]\n\nLaunch a supported coding agent through an eligible open coding model. App setup is persistent; restore it with `backpack launch <codex-app|claude-app> --restore`.\n",
+		"login":    "Usage: backpack login [--name device-name] [--no-browser]\n\nOptionally authorize this device for Backpack Cloud. Open-source Backpack requires no account.\n",
+		"logout":   "Usage: backpack logout\n\nRemove the local Backpack Cloud device credential.\n",
+		"cloud":    "Usage: backpack cloud <status|models> [--json]\n\nInspect Backpack Cloud authentication and live model availability.\n",
+		"serve":    "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
+		"ps":       "Usage: backpack ps\n\nList service-owned runtime sessions.\n",
+		"stop":     "Usage: backpack stop <session-id>\n\nGracefully stop one exact session.\n",
+		"compute":  "Usage: backpack compute <list|add|show|test|doctor|remove> [arguments]\n",
+		"runtime":  "Usage: backpack runtime <list|show|install|verify|remove> [arguments]\n",
+		"doctor":   "Usage: backpack doctor [--json]\n\nPrint sanitized local diagnostics suitable for bug reports.\n",
+		"update":   "Usage: backpack update [--check] [--version version | --prerelease]\n\nExplicitly check for or install a SHA-256-verified GitHub release. Stable releases are selected by default.\n",
+		"version":  "Usage: backpack version\n",
 	}
 	text, ok := usage[command]
 	if !ok {
@@ -185,7 +158,7 @@ func (a *app) help() error {
 
 Usage: backpack <command>
 
-  models [--json]         list the official catalog and local status
+  models [--json] [--all] list the curated coding catalog and local status
   model show <model>      show model package, runtime, and fit details
   catalog verify          detect trusted catalog/Hugging Face drift
   pull <model>            download and verify a package
@@ -193,12 +166,10 @@ Usage: backpack <command>
   inspect <model>         show manifest/runtime compatibility
   hardware                inspect local compute
   run <model> [flags]     create an API-owned session and chat
-  launch <integration>    launch an external coding agent through Backpack (experimental)
+  launch <integration>    launch a coding agent through an eligible open model
   login                   optionally authorize this device for Backpack Cloud
   logout                  remove the local Backpack Cloud credential
   cloud <command>         inspect Cloud authentication and live models
-  transcribe <audio>      transcribe audio through the runtime API
-  speak <text>            synthesize speech through the runtime API
   serve [--address addr]  start the loopback runtime API
   ps                      list runtime-owned sessions
   stop <session>          gracefully stop a session
@@ -206,112 +177,10 @@ Usage: backpack <command>
   runtime <command>       inspect and manage inference runtimes
   doctor [--json]         print sanitized release diagnostics
   update [flags]          explicitly check for or install a verified release
-  jobs <command>          list, inspect, or cancel long-running jobs
-  image <model> [flags]   submit an image-generation job (experimental)
-  video <model> [flags]   submit a video-generation job (experimental)
   version
 
 Run flags: --prompt text --context tokens --gpu-layers auto|n --keep-alive --detach --force
 `)
-	return nil
-}
-
-func (a *app) transcribe(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack transcribe <audio-file> [--model model] [--language code] [--compute target]")
-	}
-	audioPath := args[0]
-	fs := flag.NewFlagSet("transcribe", flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	model := fs.String("model", "whisper-large-v3-turbo", "transcription model")
-	language := fs.String("language", "", "language code; auto-detect when omitted")
-	computeName := fs.String("compute", "local", "compute target")
-	force := fs.Bool("force", false, "run even when model fit recommends remote compute")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: backpack transcribe <audio-file> [flags]")
-	}
-	if _, err := os.Stat(audioPath); err != nil {
-		return fmt.Errorf("audio input: %w", err)
-	}
-	api, err := daemon.Ensure(ctx, a.paths, a.version)
-	if err != nil {
-		return err
-	}
-	stopEvents := a.watchEvents(ctx, api)
-	defer stopEvents()
-	result, err := api.Transcribe(ctx, clientapi.TranscriptionRequest{Model: *model, AudioPath: audioPath, Language: *language, Compute: *computeName, Force: *force})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(a.out, result.Text)
-	return nil
-}
-
-func (a *app) speak(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack speak <text> --output file.wav [flags]")
-	}
-	input := args[0]
-	fs := flag.NewFlagSet("speak", flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	model := fs.String("model", "kokoro-82m", "speech model")
-	voice := fs.String("voice", "af_heart", "voice name")
-	output := fs.String("output", "", "output WAV path")
-	speed := fs.Float64("speed", 1, "speech speed from 0.5 to 2.0")
-	computeName := fs.String("compute", "local", "compute target")
-	force := fs.Bool("force", false, "overwrite an existing output file")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 || *output == "" {
-		return fmt.Errorf("usage: backpack speak <text> --output file.wav [flags]")
-	}
-	if *speed < 0.5 || *speed > 2 {
-		return fmt.Errorf("--speed must be between 0.5 and 2.0")
-	}
-	if _, err := os.Stat(*output); err == nil && !*force {
-		return fmt.Errorf("output %q already exists; use --force to overwrite it", *output)
-	} else if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	api, err := daemon.Ensure(ctx, a.paths, a.version)
-	if err != nil {
-		return err
-	}
-	stopEvents := a.watchEvents(ctx, api)
-	defer stopEvents()
-	audio, err := api.Speech(ctx, clientapi.SpeechRequest{Model: *model, Input: input, Voice: *voice, Format: "wav", Compute: *computeName, Speed: *speed, Force: *force})
-	if err != nil {
-		return err
-	}
-	directory := filepath.Dir(*output)
-	if err = os.MkdirAll(directory, 0700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(directory, ".backpack-speech-*.wav")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if _, err = temporary.Write(audio); err == nil {
-		err = temporary.Close()
-	} else {
-		_ = temporary.Close()
-	}
-	if err != nil {
-		return err
-	}
-	if *force {
-		_ = os.Remove(*output)
-	}
-	if err = os.Rename(temporaryPath, *output); err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "Wrote %s (%d bytes)\n", *output, len(audio))
 	return nil
 }
 
@@ -430,7 +299,7 @@ func (a *app) doctor(ctx context.Context, args []string) error {
 	if report.Update.Target != "" {
 		fmt.Fprintf(a.out, " (%s)", report.Update.Target)
 	}
-	fmt.Fprintf(a.out, "\nHome: %s\nDaemon: %v\nModels: %d installed, %d verified, %d corrupt\nRuntimes: %d installed, %d verified, %d corrupt\nPython runtimes: %d\nCompute targets: %d\n", report.BackpackHome, report.Daemon.Running, report.Models.Installed, report.Models.Verified, report.Models.Corrupt, report.Runtimes.Installed, report.Runtimes.Verified, report.Runtimes.Corrupt, len(report.PythonRuntimes), len(report.ComputeTargets))
+	fmt.Fprintf(a.out, "\nHome: %s\nDaemon: %v\nModels: %d installed, %d verified, %d corrupt\nRuntimes: %d installed, %d verified, %d corrupt\nCompute targets: %d\n", report.BackpackHome, report.Daemon.Running, report.Models.Installed, report.Models.Verified, report.Models.Corrupt, report.Runtimes.Installed, report.Runtimes.Verified, report.Runtimes.Corrupt, len(report.ComputeTargets))
 	fmt.Fprintf(a.out, "Cloud: %v (%s)\n", report.Cloud.Authenticated, report.Cloud.CredentialSource)
 	for _, integration := range report.Integrations {
 		status := "not found"
@@ -460,26 +329,40 @@ type catalogModelSummary struct {
 	Installed    bool     `json:"installed"`
 	SizeBytes    int64    `json:"size_bytes,omitempty"`
 	LocalFit     string   `json:"local_fit,omitempty"`
+	Protocols    []string `json:"protocols,omitempty"`
+	Context      int      `json:"context_window,omitempty"`
+	Agents       []string `json:"compatible_agents,omitempty"`
 }
 
 func (a *app) catalogList(args []string) error {
 	fs := flag.NewFlagSet("models", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	asJSON := fs.Bool("json", false, "emit machine-readable model summaries")
+	showAll := fs.Bool("all", false, "include internal runtime test fixtures")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: backpack models [--json]")
+		return fmt.Errorf("usage: backpack models [--json] [--all]")
 	}
 	hardware, _ := a.local.Inspect(context.Background())
 	summaries := make([]catalogModelSummary, 0, len(a.catalog.Models))
 	for _, entry := range a.catalog.Models {
+		if entry.Visibility == "test-fixture" && !*showAll {
+			continue
+		}
 		name := entry.ID
 		if len(entry.Aliases) > 0 {
 			name = entry.Aliases[0]
 		}
-		summary := catalogModelSummary{Name: name, DisplayName: entry.DisplayName, Capabilities: entry.Capabilities, Runtime: entry.RuntimeEngine, Status: entry.Status}
+		agents := make([]string, 0, len(entry.Agents))
+		for agent, compatibility := range entry.Agents {
+			if compatibility.Status == "qualified" || compatibility.Status == "compatible-experimental" {
+				agents = append(agents, agent)
+			}
+		}
+		sort.Strings(agents)
+		summary := catalogModelSummary{Name: name, DisplayName: entry.DisplayName, Capabilities: entry.Capabilities, Runtime: entry.RuntimeEngine, Status: entry.Status, Protocols: entry.Protocols, Context: entry.ContextWindow, Agents: agents}
 		if installed, err := a.models.Installed(entry.ID); err == nil {
 			summary.Installed = true
 			summary.SizeBytes = installed.Package.SizeBytes
@@ -495,13 +378,13 @@ func (a *app) catalogList(args []string) error {
 		return nil
 	}
 	fmt.Fprintf(a.out, "Official catalog %s\n\n", a.catalog.CatalogVersion)
-	fmt.Fprintln(a.out, "MODEL                      CAPABILITY               SIZE       FIT                 INSTALLED  STATUS")
+	fmt.Fprintln(a.out, "MODEL                      CAPABILITIES                                  SIZE       FIT                 INSTALLED  STATUS")
 	for _, summary := range summaries {
 		size, localFit, installed := "-", "inspect", "no"
 		if summary.Installed {
 			size, localFit, installed = humanBytes(summary.SizeBytes), summary.LocalFit, "yes"
 		}
-		fmt.Fprintf(a.out, "%-26s %-24s %-10s %-19s %-10s %s\n", summary.Name, strings.Join(summary.Capabilities, ","), size, localFit, installed, summary.Status)
+		fmt.Fprintf(a.out, "%-26s %-45s %-10s %-19s %-10s %s\n", summary.Name, strings.Join(summary.Capabilities, ","), size, localFit, installed, summary.Status)
 	}
 	return nil
 }
@@ -545,7 +428,7 @@ func (a *app) catalogCommand(ctx context.Context, args []string) error {
 		encoded, _ := json.MarshalIndent(report, "", "  ")
 		fmt.Fprintln(a.out, string(encoded))
 	} else {
-		fmt.Fprintf(a.out, "%d HF packages discovered\n%d catalog packages represented\n", report.Discovered, report.Represented)
+		fmt.Fprintf(a.out, "%d HF packages discovered\n%d curated coding packages represented\n%d out-of-scope packages ignored\n", report.Discovered, report.Represented, report.Uncurated)
 		statuses := make([]string, 0, len(report.StatusCounts))
 		for status := range report.StatusCounts {
 			statuses = append(statuses, status)
@@ -852,111 +735,6 @@ func (a *app) computeAdd(store compute.TargetStore, args []string) error {
 	return nil
 }
 
-func (a *app) jobsCommand(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack jobs <list|show|cancel>")
-	}
-	api, err := daemon.Ensure(ctx, a.paths, a.version)
-	if err != nil {
-		return err
-	}
-	switch args[0] {
-	case "list":
-		fs := flag.NewFlagSet("jobs list", flag.ContinueOnError)
-		fs.SetOutput(a.err)
-		asJSON := fs.Bool("json", false, "emit machine-readable JSON")
-		if err = fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 0 {
-			return fmt.Errorf("usage: backpack jobs list [--json]")
-		}
-		items, listErr := api.Jobs(ctx)
-		if listErr != nil {
-			return listErr
-		}
-		if *asJSON {
-			data, _ := json.MarshalIndent(map[string]any{"data": items}, "", "  ")
-			fmt.Fprintln(a.out, string(data))
-			return nil
-		}
-		if len(items) == 0 {
-			fmt.Fprintln(a.out, "No jobs.")
-			return nil
-		}
-		fmt.Fprintln(a.out, "JOB                                  MODEL                       CAPABILITY         STATUS")
-		for _, item := range items {
-			fmt.Fprintf(a.out, "%-36s %-27s %-18s %s\n", item.ID, item.Model, item.Capability, item.Status)
-		}
-		return nil
-	case "show":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: backpack jobs show <job>")
-		}
-		item, getErr := api.GetJob(ctx, args[1])
-		if getErr != nil {
-			return getErr
-		}
-		data, _ := json.MarshalIndent(item, "", "  ")
-		fmt.Fprintln(a.out, string(data))
-		return nil
-	case "cancel":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: backpack jobs cancel <job>")
-		}
-		if err = api.CancelJob(ctx, args[1]); err != nil {
-			return err
-		}
-		fmt.Fprintln(a.out, "Cancellation requested", args[1])
-		return nil
-	default:
-		return fmt.Errorf("unknown jobs command %q", args[0])
-	}
-}
-
-func (a *app) mediaJob(ctx context.Context, capability string, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack %s <model> --prompt <text> [flags]", strings.TrimSuffix(capability, "-generation"))
-	}
-	model := args[0]
-	fs := flag.NewFlagSet(capability, flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	prompt := fs.String("prompt", "", "generation prompt")
-	image := fs.String("image", "", "input image for supported video models")
-	width := fs.Int("width", 0, "output width")
-	height := fs.Int("height", 0, "output height")
-	steps := fs.Int("steps", 0, "generation steps")
-	seed := fs.Int64("seed", 0, "generation seed")
-	frames := fs.Int("frames", 0, "video frame count")
-	fps := fs.Float64("fps", 0, "video frames per second")
-	computeName := fs.String("compute", "local", "compute target")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	if *prompt == "" {
-		return fmt.Errorf("--prompt is required")
-	}
-	if capability == "image-generation" && *image != "" {
-		return fmt.Errorf("--image is only valid for video generation")
-	}
-	var seedValue *int64
-	fs.Visit(func(item *flag.Flag) {
-		if item.Name == "seed" {
-			seedValue = seed
-		}
-	})
-	api, err := daemon.Ensure(ctx, a.paths, a.version)
-	if err != nil {
-		return err
-	}
-	job, err := api.CreateJob(ctx, clientapi.CreateJobRequest{Model: model, Capability: capability, Compute: *computeName, Input: clientapi.JobInput{Prompt: *prompt, Image: *image}, Options: clientapi.JobOptions{Width: *width, Height: *height, Steps: *steps, Seed: seedValue, Frames: *frames, FPS: *fps}})
-	if err != nil {
-		return err
-	}
-	data, _ := json.MarshalIndent(job, "", "  ")
-	fmt.Fprintln(a.out, string(data))
-	return nil
-}
 func (a *app) serve(ctx context.Context, args []string, internal bool) error {
 	if err := a.paths.Ensure(); err != nil {
 		return err
@@ -983,8 +761,7 @@ func (a *app) serve(ctx context.Context, args []string, internal bool) error {
 	broker := events.NewBroker()
 	a.runtimes.Sink = broker.Publish
 	manager := sessions.NewWithEvents(a.catalog, a.models, a.registry, a.paths, broker.Publish)
-	jobManager := jobs.New(a.catalog, a.paths, broker.Publish)
-	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Audio: manager, Speech: manager, Jobs: jobManager, Events: broker, Targets: compute.NewTargetStore(a.paths), Cloud: a.cloud, CloudProxyToken: apiKey, Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
+	s := &server.Server{Version: a.version, Catalog: a.catalog, Models: a.models, Sessions: manager, Events: broker, Targets: compute.NewTargetStore(a.paths), Cloud: a.cloud, CloudProxyToken: apiKey, Hardware: func() (compute.Hardware, error) { return a.local.Inspect(ctx) }}
 	if existing, err := daemon.Read(a.paths); err == nil && existing.PID != os.Getpid() {
 		check, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 		healthErr := clientapi.New(existing.Endpoint).Health(check)

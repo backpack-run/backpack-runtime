@@ -17,15 +17,28 @@ type Catalog struct {
 	Models         []Model `json:"models"`
 }
 type Model struct {
-	ID            string   `json:"id"`
-	Aliases       []string `json:"aliases"`
-	ManifestIDs   []string `json:"manifest_ids,omitempty"`
-	DisplayName   string   `json:"display_name"`
-	Repository    string   `json:"repository"`
-	Revision      string   `json:"revision"`
-	Capabilities  []string `json:"capabilities"`
-	RuntimeEngine string   `json:"runtime_engine"`
-	Status        string   `json:"status"`
+	ID            string                        `json:"id"`
+	Aliases       []string                      `json:"aliases"`
+	ManifestIDs   []string                      `json:"manifest_ids,omitempty"`
+	DisplayName   string                        `json:"display_name"`
+	Repository    string                        `json:"repository"`
+	Revision      string                        `json:"revision"`
+	Capabilities  []string                      `json:"capabilities"`
+	Protocols     []string                      `json:"protocols,omitempty"`
+	ContextWindow int                           `json:"context_window,omitempty"`
+	Visibility    string                        `json:"visibility,omitempty"`
+	Agents        map[string]AgentCompatibility `json:"agent_compatibility,omitempty"`
+	RuntimeEngine string                        `json:"runtime_engine"`
+	Status        string                        `json:"status"`
+}
+
+// AgentCompatibility is trusted qualification evidence, not a model-authored
+// claim. It records whether one exact packaged model is fit for an external
+// coding-agent protocol.
+type AgentCompatibility struct {
+	Status   string `json:"status"`
+	Protocol string `json:"protocol"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 func Load() (Catalog, error) {
@@ -56,6 +69,30 @@ func (c Catalog) Validate() error {
 			return fmt.Errorf("catalog repository %q is duplicated by %q and %q", model.Repository, previous, model.ID)
 		}
 		repositories[repository] = model.ID
+		if model.ContextWindow < 0 {
+			return fmt.Errorf("catalog model %q has a negative context window", model.ID)
+		}
+		for _, protocol := range model.Protocols {
+			if !contains([]string{"chat-completions", "responses", "messages"}, protocol) {
+				return fmt.Errorf("catalog model %q declares unknown protocol %q", model.ID, protocol)
+			}
+		}
+		for agent, compatibility := range model.Agents {
+			if strings.TrimSpace(agent) == "" || !contains([]string{"qualified", "compatible-experimental", "untested", "incompatible"}, compatibility.Status) {
+				return fmt.Errorf("catalog model %q has invalid agent compatibility for %q", model.ID, agent)
+			}
+			if compatibility.Status != "incompatible" && strings.TrimSpace(compatibility.Protocol) == "" {
+				return fmt.Errorf("catalog model %q agent %q requires a protocol", model.ID, agent)
+			}
+			if compatibility.Protocol != "" && !contains(model.Protocols, compatibility.Protocol) {
+				return fmt.Errorf("catalog model %q agent %q uses undeclared protocol %q", model.ID, agent, compatibility.Protocol)
+			}
+			if compatibility.Status == "qualified" || compatibility.Status == "compatible-experimental" {
+				if !contains(model.Capabilities, "coding") || !contains(model.Capabilities, "tool-calling") || model.ContextWindow == 0 {
+					return fmt.Errorf("catalog model %q cannot be agent-eligible without coding, tool-calling, and a trusted context window", model.ID)
+				}
+			}
+		}
 		for _, identity := range append([]string{model.ID}, model.Aliases...) {
 			key := strings.ToLower(strings.TrimSpace(identity))
 			if key == "" {
@@ -68,6 +105,15 @@ func (c Catalog) Validate() error {
 		}
 	}
 	return nil
+}
+
+func contains(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 func (c Catalog) Resolve(name string) (Model, error) {
 	name = strings.ToLower(strings.TrimSpace(name))

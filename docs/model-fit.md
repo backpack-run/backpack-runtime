@@ -1,11 +1,11 @@
 # Model-fit policy
 
-Backpack estimates fit from package metadata and detected compute hardware. The result is advisory—it cannot account perfectly for context growth, driver allocations, other processes, or every engine—but it prevents clearly harmful silent CPU fallback.
+Backpack compares trusted package estimates and artifact size with detected RAM/VRAM before download or launch:
 
-- `excellent`: the estimated accelerator requirement fits detected VRAM.
-- `good`: the package fits system memory and CPU execution is considered reasonable.
-- `constrained`: it likely fits, but recommended memory leaves little operating-system/context headroom.
-- `remote-recommended`: accelerator-oriented execution does not fit detected VRAM and CPU fallback is likely impractical.
-- `unsupported`: the estimated working set exceeds a safe share of system RAM.
+- `excellent`: accelerator requirement fits detected VRAM.
+- `good`: system memory and CPU execution are reasonable.
+- `constrained`: expected to fit with limited headroom.
+- `remote-recommended`: accelerator fit failed and CPU fallback is impractical.
+- `unsupported`: working set exceeds a safe share of memory.
 
-`backpack inspect <installed-model>` includes the local report. Session creation, transcription, and speech refuse `remote-recommended` or `unsupported` fits. CLI commands accept `--force` as an explicit override; clients pass `options.force` for sessions or `force` on audio requests. The policy uses manifest RAM/VRAM estimates and artifact size, never a model-name table.
+Session creation refuses unsafe fits unless the user explicitly supplies `--force`. The policy is model-name independent. Context growth, KV cache, concurrency, and other processes can still change real memory use, so fit is a safety estimate rather than a guarantee.

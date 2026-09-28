@@ -22,7 +22,6 @@ type Event struct {
 	Current    int64     `json:"current,omitempty"`
 	Total      int64     `json:"total,omitempty"`
 	Percentage float64   `json:"percentage,omitempty"`
-	JobID      string    `json:"job_id,omitempty"`
 	ModelID    string    `json:"model_id,omitempty"`
 	At         time.Time `json:"at"`
 }
@@ -43,15 +42,6 @@ const (
 	GenerationComplete      = "generation.complete"
 	RuntimeError            = "runtime.error"
 	ModelSyncProgress       = "model.sync.progress"
-	JobCreated              = "job.created"
-	JobPreparing            = "job.preparing"
-	JobRuntimeInstall       = "job.runtime.install"
-	JobModelLoad            = "job.model.load"
-	JobProgress             = "job.progress"
-	JobOutput               = "job.output"
-	JobCompleted            = "job.completed"
-	JobFailed               = "job.failed"
-	JobCancelled            = "job.cancelled"
 )
 
 type Sink func(Event)

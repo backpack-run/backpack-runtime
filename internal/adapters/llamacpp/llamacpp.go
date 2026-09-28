@@ -115,9 +115,6 @@ func (a *Adapter) Start(ctx context.Context, m *models.Installed, target compute
 		}
 	}
 	args := []string{"--model", target.ResolvePath(m.Entrypoint()), "--host", o.Host, "--port", fmt.Sprint(o.Port), "--ctx-size", fmt.Sprint(o.ContextSize), "--n-gpu-layers", fmt.Sprint(o.GPULayers), "--alias", m.ID}
-	if projector, ok := m.ArtifactPath("multimodal-projector"); ok {
-		args = append(args, "--mmproj", target.ResolvePath(projector))
-	}
 	logPath := filepath.Join(a.Paths.Logs, "llama-"+m.ID+".log")
 	_ = os.MkdirAll(a.Paths.Logs, 0700)
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)

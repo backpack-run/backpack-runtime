@@ -63,7 +63,6 @@ type Report struct {
 	Runtimes               IntegritySummary     `json:"runtimes"`
 	Models                 IntegritySummary     `json:"models"`
 	ComputeTargets         []ComputeSummary     `json:"compute_targets"`
-	PythonRuntimes         []string             `json:"python_runtimes"`
 	Integrations           []IntegrationSummary `json:"coding_agent_integrations"`
 	ConfigurationOverrides []string             `json:"configuration_overrides"`
 	Update                 UpdateSummary        `json:"update"`
@@ -73,7 +72,7 @@ type Report struct {
 
 func Collect(ctx context.Context, version string, paths config.Paths, local compute.Local, modelManager *models.Manager, runtimeManager *runtimebundle.Manager, targets compute.TargetStore, cloudClient *cloud.Client) Report {
 	home, _ := os.UserHomeDir()
-	report := Report{Version: version, Platform: runtime.GOOS + "/" + runtime.GOARCH, BackpackHome: SanitizePath(paths.Root, home), ComputeTargets: []ComputeSummary{{Name: "local", Kind: "local"}}, PythonRuntimes: []string{}, Integrations: []IntegrationSummary{}, ConfigurationOverrides: []string{}, KnownProblems: []string{}}
+	report := Report{Version: version, Platform: runtime.GOOS + "/" + runtime.GOARCH, BackpackHome: SanitizePath(paths.Root, home), ComputeTargets: []ComputeSummary{{Name: "local", Kind: "local"}}, Integrations: []IntegrationSummary{}, ConfigurationOverrides: []string{}, KnownProblems: []string{}}
 	if executable, err := os.Executable(); err == nil {
 		report.Binary.Path = SanitizePath(executable, home)
 		if found, pathErr := exec.LookPath(filepath.Base(executable)); pathErr == nil {
@@ -94,7 +93,6 @@ func Collect(ctx context.Context, version string, paths config.Paths, local comp
 			report.Integrations = append(report.Integrations, summary)
 		}
 	}
-	report.PythonRuntimes = pythonRuntimeInventory(paths)
 	for _, name := range []string{"BACKPACK_LLAMA_SERVER", "BACKPACK_HOME", "BACKPACK_CLOUD_URL", "BACKPACK_API_KEY"} {
 		if os.Getenv(name) != "" {
 			report.ConfigurationOverrides = append(report.ConfigurationOverrides, name)
@@ -165,33 +163,6 @@ func Collect(ctx context.Context, version string, paths config.Paths, local comp
 		report.KnownProblems[i] = SanitizeText(report.KnownProblems[i], home)
 	}
 	return report
-}
-
-func pythonRuntimeInventory(paths config.Paths) []string {
-	root := filepath.Join(paths.Runtimes, "python", "environments")
-	engines, err := os.ReadDir(root)
-	if err != nil {
-		return []string{}
-	}
-	var result []string
-	for _, engine := range engines {
-		if !engine.IsDir() {
-			continue
-		}
-		versions, _ := os.ReadDir(filepath.Join(root, engine.Name()))
-		for _, version := range versions {
-			if !version.IsDir() {
-				continue
-			}
-			platforms, _ := os.ReadDir(filepath.Join(root, engine.Name(), version.Name()))
-			for _, platform := range platforms {
-				if platform.IsDir() {
-					result = append(result, engine.Name()+"/"+version.Name()+"/"+platform.Name())
-				}
-			}
-		}
-	}
-	return result
 }
 
 func SanitizeText(value, home string) string {

@@ -19,15 +19,15 @@ func (f fakeAdapter) Health(context.Context, *Session) error { return nil }
 func (f fakeAdapter) Stop(context.Context, *Session) error   { return nil }
 func (f fakeAdapter) Capabilities() []string                 { return nil }
 func TestRegistrySelectsByManifestEngine(t *testing.T) {
-	r := NewRegistry(fakeAdapter{"kokoro"})
-	a, err := r.Select(models.RuntimeRequirement{Engine: "KOKORO"})
+	r := NewRegistry(fakeAdapter{"llama.cpp"})
+	a, err := r.Select(models.RuntimeRequirement{Engine: "LLAMA.CPP"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Name() != "kokoro" {
+	if a.Name() != "llama.cpp" {
 		t.Fatal("wrong adapter")
 	}
-	if _, err = r.Select(models.RuntimeRequirement{Engine: "qwen-asr"}); err == nil {
+	if _, err = r.Select(models.RuntimeRequirement{Engine: "unknown"}); err == nil {
 		t.Fatal("unsupported engine accepted")
 	}
 }

@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Exact immutable release tag to qualify
         required: true
-        default: v0.1.0-alpha.1
+        default: v0.3.0-alpha.1
       coding_model:
         description: Execution-qualified candidate model for the Codex job
         required: true

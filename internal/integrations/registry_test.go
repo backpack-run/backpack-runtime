@@ -6,7 +6,7 @@ import (
 )
 
 func testDescriptor(id string) Descriptor {
-	return Descriptor{ID: id, DisplayName: "Test Agent", ExecutableCandidates: []string{id, id + ".exe"}, RequiredModelCapability: "code", RecommendedContextTokens: 32768}
+	return Descriptor{ID: id, DisplayName: "Test Agent", Protocol: "responses", ExecutableCandidates: []string{id, id + ".exe"}, RequiredModelCapabilities: []string{"coding"}, RecommendedContextTokens: 32768}
 }
 
 func TestRegistryValidatesAndReturnsDefensiveCopies(t *testing.T) {
@@ -34,12 +34,12 @@ func TestRegistryValidatesAndReturnsDefensiveCopies(t *testing.T) {
 func TestDescriptorValidation(t *testing.T) {
 	tests := []Descriptor{
 		{},
-		{ID: "Bad", DisplayName: "Bad", ExecutableCandidates: []string{"bad"}, RequiredModelCapability: "code"},
-		{ID: "bad", DisplayName: "", ExecutableCandidates: []string{"bad"}, RequiredModelCapability: "code"},
-		{ID: "bad", DisplayName: "Bad", ExecutableCandidates: []string{`tools/bad`}, RequiredModelCapability: "code"},
-		{ID: "bad", DisplayName: "Bad", ExecutableCandidates: []string{"bad", "BAD"}, RequiredModelCapability: "code"},
+		{ID: "Bad", DisplayName: "Bad", Protocol: "responses", ExecutableCandidates: []string{"bad"}, RequiredModelCapabilities: []string{"coding"}},
+		{ID: "bad", DisplayName: "", Protocol: "responses", ExecutableCandidates: []string{"bad"}, RequiredModelCapabilities: []string{"coding"}},
+		{ID: "bad", DisplayName: "Bad", Protocol: "responses", ExecutableCandidates: []string{`tools/bad`}, RequiredModelCapabilities: []string{"coding"}},
+		{ID: "bad", DisplayName: "Bad", Protocol: "responses", ExecutableCandidates: []string{"bad", "BAD"}, RequiredModelCapabilities: []string{"coding"}},
 		{ID: "bad", DisplayName: "Bad", ExecutableCandidates: []string{"bad"}},
-		{ID: "bad", DisplayName: "Bad", ExecutableCandidates: []string{"bad"}, RequiredModelCapability: "code", RecommendedContextTokens: -1},
+		{ID: "bad", DisplayName: "Bad", Protocol: "responses", ExecutableCandidates: []string{"bad"}, RequiredModelCapabilities: []string{"coding"}, RecommendedContextTokens: -1},
 	}
 	for _, descriptor := range tests {
 		if _, err := NewRegistry(descriptor); err == nil {

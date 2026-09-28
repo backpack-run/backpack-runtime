@@ -107,8 +107,8 @@ func TestBuiltinCatalogIsValidAndCarriesLicense(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Runtimes) < 2 {
-		t.Fatalf("expected multiple native runtimes, got %#v", c)
+	if len(c.Runtimes) != 1 || c.Runtimes[0].Engine != "llama.cpp" {
+		t.Fatalf("expected only the coding runtime, got %#v", c)
 	}
 	for _, runtime := range c.Runtimes {
 		if runtime.License == "" {
@@ -117,23 +117,7 @@ func TestBuiltinCatalogIsValidAndCarriesLicense(t *testing.T) {
 	}
 }
 
-func TestBuiltinWhisperRuntimeResolvesOnlyPublishedPlatform(t *testing.T) {
-	c, err := LoadCatalog()
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := &Manager{Catalog: c}
-	requirement := models.RuntimeRequirement{Engine: "whisper.cpp", Version: "eacbd8234c6654cdbf2c377f72b2106875479bdc"}
-	_, variant, err := m.Resolve(requirement, compute.Hardware{OS: "windows", Architecture: "amd64", Backends: []string{"cpu"}})
-	if err != nil || variant.ID != "windows-amd64-cpu" {
-		t.Fatalf("variant %#v error %v", variant, err)
-	}
-	if _, _, err = m.Resolve(requirement, compute.Hardware{OS: "linux", Architecture: "amd64", Backends: []string{"cpu"}}); err == nil {
-		t.Fatal("accepted unpublished Linux Whisper runtime")
-	}
-}
-
-func TestManagedLlamaBundleDoesNotClaimGLMDevelopmentRevision(t *testing.T) {
+func TestManagedLlamaBundleDoesNotClaimUnknownDevelopmentRevision(t *testing.T) {
 	c, err := LoadCatalog()
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +125,7 @@ func TestManagedLlamaBundleDoesNotClaimGLMDevelopmentRevision(t *testing.T) {
 	m := &Manager{Catalog: c}
 	requirement := models.RuntimeRequirement{Engine: "llama.cpp", Version: "8134115f88ed8018474e7db69afcfe97fb097fc4"}
 	if _, _, err = m.Resolve(requirement, compute.Hardware{OS: "windows", Architecture: "amd64", Backends: []string{"cpu"}}); err == nil {
-		t.Fatal("managed b10618 bundle claimed an unvalidated GLM development revision")
+		t.Fatal("managed b10618 bundle claimed an unvalidated development revision")
 	}
 }
 

@@ -1,14 +1,14 @@
 # SSH compute
 
-SSH targets store host, username, port, optional identity-file reference, and a user-owned remote root. Private key contents are never stored. OpenSSH uses batch mode, keepalives, and `StrictHostKeyChecking=yes`; SSH config and agent behavior remain available.
-
 ```console
 backpack compute add ssh gpu-1 --host gpu.example.org --user alice
 backpack compute doctor gpu-1
 backpack compute list
-backpack run smollm2-135m --compute gpu-1
+backpack run qwen3-coder-30b-a3b --compute gpu-1
 ```
 
-The target probes Linux CPU/RAM and NVIDIA/CUDA information. The local runtime manager first selects and verifies a Linux runtime variant, then stages its files under `~/.backpack/runtimes/<engine>/<version>/<variant>` and verifies every SHA-256 remotely. Model artifacts use the parallel `~/.backpack/models/<model>/<revision>/<package>` cache. Arbitrary input files use a content-addressed `inputs/<sha256>.<ext>` cache and are also verified remotely. `llama-server` binds remote loopback; the local API reaches it through SSH forwarding. Job-style commands do not allocate a tunnel.
+Targets store connection metadata and an optional identity-file path, never private-key contents. OpenSSH uses batch mode, keepalives, and `StrictHostKeyChecking=yes`.
 
-No global remote installation or root access is required. When rsync is installed locally and remotely, transfers use `--partial --append-verify` and resume the `.part` file; SCP is the explicit non-resumable fallback. Every completed transfer is remotely SHA-256 verified and atomically renamed. `compute test` and `compute doctor` run the same connectivity, strict-host-key, hardware, writable-root, real transfer, checksum, and execution probe. A trusted Linux runtime variant is still required: llama.cpp is SSH-capable today, while Whisper and isolated Python currently report unavailable. No real SSH smoke test runs unless a host is supplied; normal tests use a mock transport.
+Backpack probes Linux CPU/RAM and NVIDIA/CUDA details, stages the locally verified llama.cpp bundle and model package in a user-owned remote cache, verifies hashes remotely, and atomically finalizes files. `llama-server` binds remote loopback and the local daemon connects through SSH forwarding. No root or global runtime installation is required.
+
+`compute test` and `compute doctor` run connectivity, known-host, hardware, writable-root, transfer/checksum, and execution checks. Real-host qualification remains experimental unless a host is explicitly supplied; CI uses deterministic mock transports.

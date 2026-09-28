@@ -43,10 +43,10 @@ packages:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Discovered != 2 || report.Represented != 1 || report.StatusCounts["supported"] != 1 {
+	if report.Discovered != 2 || report.Represented != 1 || report.Uncurated != 1 || report.StatusCounts["supported"] != 1 {
 		t.Fatalf("unexpected report %#v", report)
 	}
-	if len(report.Issues) != 1 || report.Issues[0].Code != "missing-from-catalog" {
+	if len(report.Issues) != 0 {
 		t.Fatalf("unexpected issues %#v", report.Issues)
 	}
 }

@@ -1,11 +1,11 @@
 # Security
 
-Report vulnerabilities privately through GitHub Security Advisories for `backpack-run/backpack-runtime`; do not open a public issue with exploit details. The API and internal workers are loopback-only. Do not log credentials, SSH keys, tokens, request secrets, or uploaded audio. Verify package/runtime checksums and immutable revisions before execution.
+Report vulnerabilities privately through GitHub Security Advisories for `backpack-run/backpack-runtime`. Do not open a public issue containing exploit details.
 
-Only the trusted runtime and Python-environment catalogs may select executable code or dependency inputs. Model manifests select a declared engine/version but cannot inject shell commands or worker scripts. Managed Python distributions, package caches, environments, and configuration are contained under `BACKPACK_HOME`; Backpack does not inspect or mutate global Python. Uploaded transcription files use private temporary storage and are removed after each request.
+Backpack treats model manifests as semi-trusted data. Only the reviewed model and runtime catalogs may select executable engines or downloads. Artifacts are pinned and SHA-256 verified; manifests cannot inject commands, arguments, dependencies, worker code, or environment variables.
 
-SSH retains strict `known_hosts` checking, binds remote services to loopback, verifies content-addressed input/model/runtime transfers remotely, and does not store private key contents. Treat model formats that can execute code or deserialize pickle data as higher risk; only catalog-pinned trusted publishers should be eligible for those adapters.
+The local API and inference engines bind to loopback. Launch credentials are random and scoped to the daemon; Cloud credentials remain inside Backpack and must not appear in logs or child environments. SSH uses strict known-host verification and never stores private-key contents.
 
-Chat image inputs are restricted to inline `data:image/...` content; network and filesystem URLs are rejected. Generated artifacts are confined to Backpack-owned per-job directories, and API responses omit their internal absolute paths. `backpack doctor --json` is designed for bug reports and excludes prompts, conversations, credentials, SSH endpoint details, and the user's home path prefix.
+Do not log credentials, tokens, SSH endpoints/keys, prompts, conversations, private paths, or tool results. `backpack doctor --json` is the preferred sanitized diagnostic output.
 
-Release installers require an explicit version, retain HTTPS across redirects, verify the archive against the release SHA-256 list, reject unexpected archive members and links, and stage user-local replacement without changing `PATH` or elevating privileges. Because the archive and checksum list share the GitHub Release trust domain, SHA-256 is corruption/tampering detection rather than an independent publisher signature. Protecting repository and workflow credentials remains essential.
+Release installers use HTTPS, verify GitHub Release checksums, reject unsafe archive members, and install without elevation by default. Protecting repository, workflow, and release credentials remains essential because archives and checksum files share the same release trust domain.

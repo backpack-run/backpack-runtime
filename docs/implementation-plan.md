@@ -1,31 +1,21 @@
-# Implementation plan
+# Coding-agent runtime plan
 
-- [x] Inspect packager and Desktop contracts and document ownership/duplication.
-- [x] Establish Go module, CLI/runtime separation, paths, catalog, manifest model, events, adapters, targets, and API skeleton.
-- [x] Normalize explicit and legacy runtime contracts without model-name conditionals.
-- [x] Pull and SHA-256 verify SmolLM2 135M.
-- [x] Launch, health-check, infer, and stop SmolLM2 through llama.cpp locally.
-- [x] Add auto-started service ownership, persisted sessions, `ps`, exact-session `stop`, child monitoring, and SSE proxying.
-- [x] Install/version verified llama.cpp runtime bundles locally and transfer them to SSH caches.
-- [x] Validate complete split-GGUF sets and pass typed projector artifacts to llama.cpp without model-name conditionals.
-- [x] Add metadata-only resolution and fit refusal for larger GGUF packages without putting weights in ordinary CI (real large-model inference remains pending).
-- [x] Add SSH configuration, probing, checksum-aware model/runtime sync, remote launch, and loopback tunneling (real-host smoke test pending).
-- [x] Implement and real-smoke-test Windows CPU Whisper transcription through a verified managed native runtime.
-- [x] Implement the managed uv/Python environment boundary, protocol-v1 worker client, and Qwen ASR/Kokoro adapters and APIs.
-- [x] Complete real clean-environment Kokoro synthesis, cache reuse, managed session stop, and no-orphan validation.
-- [x] Complete real clean-environment Qwen ASR pull, transcription, cache/session reuse, and stop/no-orphan validation.
-- [x] Add manifest-based model-fit classification and explicit `--force` override for poor local fallback.
-- [x] Add persistent cancellable jobs, structured progress, confined output artifacts, HTTP routes, CLI surfaces, and public Go client types.
-- [ ] Register image/video runners only after immutable package contracts and real GPU execution are validated.
-- [x] Extend the generic public client/event contract; managed Backpack Compute remains out of scope.
-- [x] Add isolated Claude Code and Codex launch architecture, model/compute selection, passthrough arguments, and launch diagnostics.
-- [x] Add protocol-neutral inference translation plus tested Responses and Anthropic Messages compatibility subsets.
-- [x] Pass real installed Codex protocol and shell-tool-loop tests against a deterministic local inference fixture.
-- [x] Add experimental OpenCode launch with isolated OpenAI-compatible provider routing and no user-config mutation.
-- [x] Add explicit channel-aware, checksum-verified self-update with Unix rollback and safe Windows staging.
-- [x] Version and migrate compute-target, model, session, and job state with backups and future-version refusal.
-- [x] Add GitHub release attestations, hardened channel-aware installers, uninstall guidance, and a static `backpack.run` hosting contract.
-- [x] Add opt-in real macOS, Codex/model, and SSH release-qualification workflows.
-- [ ] Qualify at least one real Backpack coding model end-to-end with Codex and Claude Code; Claude executable and suitable model hardware are currently unavailable locally.
-- [x] Deploy reviewed `backpack.run/install.sh` and `backpack.run/install.ps1` endpoints, verify their bytes against this repository, and publish the short installation commands.
-- [x] Add live Backpack Cloud model discovery, Ed25519 device authorization, non-interactive API-key auth, secured loopback proxying, and real Codex/Cloud qualification.
+Completed foundation:
+
+- persistent daemon and owned model sessions
+- verified model/runtime installation and managed llama.cpp variants
+- local and SSH compute abstractions
+- OpenAI Chat Completions, Responses, and Anthropic Messages translation
+- Codex, Claude Code, Codex App, Claude App, OpenCode, and Pi launch adapters
+- explicit model capabilities and per-agent protocol qualification
+- Cloud routing isolated from local runtime availability
+
+Next priorities:
+
+1. Expand deterministic tool-loop conformance tests across every agent protocol.
+2. Qualify a small set of strong coding models on representative local and remote GPUs.
+3. Add explainable `--model auto` only after memory, context, quantization, and agent-quality evidence is complete.
+4. Improve prompt/prefix caching and repeated-turn metrics through supported engine controls.
+5. Add a trusted high-performance server runtime for user-owned GPUs without coupling protocols to that engine.
+
+ASR, TTS, vision, image, video, and generic media jobs are intentionally not on this roadmap.

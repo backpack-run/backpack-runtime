@@ -1,51 +1,16 @@
 # Release readiness
 
-The evidence matrix for current platforms, modalities, agents, compute targets, and large/media models is maintained in [qualification-matrix.md](qualification-matrix.md).
+Every coding-agent-focused alpha must pass:
 
-This is a living gate checklist. A checked item has direct evidence; compiling a platform is not equivalent to executing on it.
+- clean build, tests, vet, and release snapshot
+- Windows archive install, `--version`, `doctor`, and CLI help
+- verified model/runtime download and at least one real GGUF inference path
+- daemon restart, detached session, `ps`, stop, and no-orphan checks
+- protocol translation tests for Chat Completions, Responses, and Messages
+- capability refusal and launch-adapter configuration tests
+- archive/checksum/install-script safety checks
+- current model, agent, API, security, and license documentation
 
-## First public alpha
+Platform and integration claims must name their evidence. Linux/macOS builds, SSH, desktop apps, and third-party agent binaries remain experimental until real environment qualification succeeds. A model that can generate text is not automatically agent-qualified.
 
-- [x] Windows clean-home model/runtime install and cache reuse
-- [x] SmolLM2 135M chat
-- [x] Qwen2.5 0.5B chat
-- [x] SmolLM2 1.7B chat
-- [x] Whisper Large v3 Turbo transcription
-- [x] Qwen3-ASR 0.6B transcription from a hash-locked environment
-- [x] Kokoro 82M speech from a hash-locked environment
-- [x] checksum corruption detection and model repair
-- [x] daemon/session stop and stale-state coverage
-- [x] sanitized `backpack doctor` and JSON output
-- [x] Windows amd64, Linux amd64, and macOS arm64 release archive configuration with SHA-256 checksums
-- [x] checksum-verifying installer scripts and deterministic tests
-- [x] CLI help smoke and Go format/test/vet/build gates
-- [x] clean Linux amd64 release-archive install and real core inference
-- [ ] clean macOS arm64 install and real core inference
-- [ ] independent installer/security review
-- [x] license/notice audit of the release archive and managed llama.cpp, whisper.cpp, and uv runtime bundles
-- [ ] publish a prerelease tag and verify its downloaded artifacts
-
-Image, video, vision, larger GGUF models, and SSH may remain experimental and do not block alpha.
-
-## Beta
-
-- [ ] real SSH host doctor, resumable transfer, tunnel, inference, disconnect, and cleanup validation
-- [ ] trusted/validated Linux and macOS audio runtime variants
-- [ ] broader GGUF execution including complete split packages
-- [ ] real projector/vision inference
-- [ ] upgrade testing across at least two prerelease versions
-- [ ] stable API compatibility and migration policy
-- [ ] signed or provenance-attested release artifacts
-
-## Stable
-
-- [ ] repeatable Windows, Linux, and macOS release qualification
-- [ ] documented support and security-response policy
-- [ ] backward-compatible persisted-state migrations
-- [ ] recovery testing for interrupted downloads, low disk, crashes, and OS sleep/resume
-- [ ] sustained release/upgrade telemetry through opt-in reports or reproducible user diagnostics
-- [ ] remove all unsupported claims from public surfaces and resolve critical audit findings
-
-## Experimental media
-
-Z-Image and Wan use hybrid, revision-pinned component package proposals today. They require a trusted dependency lock, deterministic component verification, fit/refusal behavior, cancellation, valid artifact metadata, cache reuse, cleanup, and real GPU inference before becoming supported.
+Removed media commands, endpoints, runtime definitions, dependencies, and documentation must remain absent. Historical release notes may describe older alpha functionality but are not current product documentation.

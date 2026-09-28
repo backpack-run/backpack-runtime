@@ -79,7 +79,7 @@ func TestCodexInvocationUsesCommandLineProviderIsolation(t *testing.T) {
 
 func TestWriteCodexModelCatalogUsesTrustedMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "codex", "models.json")
-	model := catalog.Model{ID: "coder", DisplayName: "Coder", Capabilities: []string{"chat", "code", "vision"}}
+	model := catalog.Model{ID: "coder", DisplayName: "Coder", Capabilities: []string{"text", "coding", "tool-calling"}}
 	if err := WriteCodexModelCatalog(CodexCatalogOptions{Model: model, ContextTokens: 131072, Path: path}); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestWriteCodexModelCatalogUsesTrustedMetadata(t *testing.T) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Models) != 1 || payload.Models[0].Slug != "coder" || payload.Models[0].ContextWindow != 131072 || len(payload.Models[0].InputModalities) != 2 || payload.Models[0].ParallelToolCalls {
+	if len(payload.Models) != 1 || payload.Models[0].Slug != "coder" || payload.Models[0].ContextWindow != 131072 || len(payload.Models[0].InputModalities) != 1 || payload.Models[0].ParallelToolCalls {
 		t.Fatalf("unexpected catalog %s", data)
 	}
 	if !strings.Contains(payload.Models[0].BaseInstructions, "call the appropriate tool") || !strings.Contains(payload.Models[0].BaseInstructions, "Keep inspection commands bounded") || !strings.Contains(payload.Models[0].BaseInstructions, "never claim an action succeeded") {
@@ -125,6 +125,30 @@ func TestOpenCodeInvocationUsesInlineIsolatedProvider(t *testing.T) {
 	}
 	if strings.Contains(invocation.Environment.String(), "test-daemon-key") {
 		t.Fatal("OpenCode diagnostics leaked inline provider credentials")
+	}
+}
+
+func TestPiInvocationUsesIsolatedOfficialModelConfiguration(t *testing.T) {
+	root := t.TempDir()
+	invocation, err := PiInvocation(ProviderOptions{Endpoint: "http://127.0.0.1:11434", Model: "coder", ContextTokens: 131072, ConfigDirectory: root, Executable: filepath.Join(root, "pi"), Passthrough: []string{"--print", "hello"}, APIKey: "test-daemon-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(invocation.Args(), " "); got != "--provider backpack --model coder --print hello" {
+		t.Fatalf("unexpected Pi arguments: %s", got)
+	}
+	data := string(mustRead(t, filepath.Join(root, "models.json")))
+	for _, required := range []string{`"baseUrl": "http://127.0.0.1:11434/v1"`, `"api": "openai-completions"`, `"contextWindow": 131072`, `"maxTokens": 8192`} {
+		if !strings.Contains(data, required) {
+			t.Fatalf("missing %q in Pi config: %s", required, data)
+		}
+	}
+	environment := strings.Join(invocation.Environment.Apply([]string{"PI_CODING_AGENT_DIR=user", "BACKPACK_API_KEY=cloud-secret"}), "\n")
+	if !strings.Contains(environment, "PI_CODING_AGENT_DIR="+root) || !strings.Contains(environment, "BACKPACK_LOOPBACK_TOKEN=test-daemon-key") || strings.Contains(environment, "cloud-secret") {
+		t.Fatalf("Pi child environment was not isolated: %s", environment)
+	}
+	if strings.Contains(invocation.Environment.String(), "test-daemon-key") {
+		t.Fatal("Pi diagnostics leaked the launch token")
 	}
 }
 

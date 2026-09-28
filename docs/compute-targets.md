@@ -1,9 +1,9 @@
 # Compute targets
 
-A compute target answers where work runs; it does not know model families. Local execution implements hardware inspection and managed process launch. SSH implements saved configuration, strict known-host verification, hardware probing, checksum-aware model/runtime/input synchronization, remote loopback launch, and local forwarding. `compute test` and `compute doctor` perform the same real readiness probe, including a small transfer/checksum test. Native job commands do not open unnecessary tunnels. Neither local nor SSH execution requires a Backpack account.
+A compute target answers where an already-qualified coding model runs. The agent and protocol layers do not depend on that choice.
 
-Managed Backpack Cloud remains an explicit unimplemented target boundary. It will require optional Backpack authentication and current server-side entitlement when introduced; those requirements must never propagate to local or user-owned SSH targets. The private-preview `:cloud` model path is temporary compatibility behavior, not the final target abstraction.
+- `local`: hardware inspection plus owned process launch.
+- `ssh`: strict known-host verification, remote hardware probing, verified cache synchronization, remote loopback launch, and local forwarding.
+- Backpack Cloud: optional access-controlled compatibility path; it must never become a prerequisite for local or SSH operation.
 
-Large transfers prefer rsync with partial-file resume and fall back to explicitly non-resumable SCP. Final files are checksum verified remotely and atomically renamed; interrupted `.part` files can be reused by a later rsync attempt.
-
-The same adapter receives either target. Actual availability still depends on a trusted runtime variant for the target platform. Today llama.cpp has local and SSH-capable Linux bundles; Whisper is validated only on local Windows x64 CPU. Isolated-Python workers return an explicit unavailable error for SSH until pinned remote uv/Python/environment definitions are published and validated.
+All targets receive the same model/runtime contract. Actual availability depends on a trusted runtime variant and model-fit result. Large transfers prefer resumable rsync and fall back to non-resumable SCP with checksum validation and atomic finalization.

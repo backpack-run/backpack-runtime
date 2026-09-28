@@ -37,6 +37,7 @@ type Report struct {
 	Organization string         `json:"organization"`
 	Discovered   int            `json:"discovered"`
 	Represented  int            `json:"represented"`
+	Uncurated    int            `json:"uncurated"`
 	StatusCounts map[string]int `json:"status_counts"`
 	Issues       []Issue        `json:"issues"`
 }
@@ -88,9 +89,9 @@ func (v Verifier) Verify(ctx context.Context, trusted catalog.Catalog) (Report, 
 	for _, entry := range trusted.Models {
 		entries[strings.ToLower(entry.Repository)] = entry
 	}
-	for key, model := range remote {
+	for key := range remote {
 		if _, exists := entries[key]; !exists {
-			report.Issues = append(report.Issues, Issue{Repository: model.ID, Code: "missing-from-catalog", Message: "public Backpack package is absent from the trusted catalog"})
+			report.Uncurated++
 		}
 	}
 	for _, entry := range trusted.Models {
@@ -195,12 +196,6 @@ func acceptedManifestID(entry catalog.Model, manifestID string) bool {
 }
 
 func verifyRuntimeContract(entry catalog.Model, manifest *models.Manifest) error {
-	if manifest.Pipeline != nil {
-		if !strings.EqualFold(manifest.Pipeline.Engine, entry.RuntimeEngine) {
-			return fmt.Errorf("catalog engine %q differs from pipeline engine %q", entry.RuntimeEngine, manifest.Pipeline.Engine)
-		}
-		return nil
-	}
 	for _, pkg := range manifest.Packages {
 		requirement := manifest.RuntimeFor(pkg)
 		if requirement.Engine == "" {

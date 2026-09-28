@@ -20,7 +20,7 @@ func TestFitClassificationAndRefusal(t *testing.T) {
 	}
 }
 
-func TestGLM53FlashIsRefusedBeforeDownloadOnConsumerHardware(t *testing.T) {
+func TestVeryLargeCodingModelIsRefusedBeforeDownloadOnConsumerHardware(t *testing.T) {
 	pkg := models.Package{
 		SizeBytes: 193813823776,
 		Runtime:   models.RuntimeInfo{Provider: "llama.cpp"},
@@ -28,6 +28,6 @@ func TestGLM53FlashIsRefusedBeforeDownloadOnConsumerHardware(t *testing.T) {
 	}
 	report := Evaluate(pkg, compute.Hardware{MemoryTotalGB: 32, GPUs: []compute.GPU{{VRAMGB: 8}}})
 	if report.State != Unsupported || Refusal(report) == nil {
-		t.Fatalf("large GLM package was not refused: %#v", report)
+		t.Fatalf("very large coding package was not refused: %#v", report)
 	}
 }

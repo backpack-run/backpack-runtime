@@ -1,12 +1,14 @@
 # Backpack Runtime
 
-**Backpack Runtime is an open-source runtime and CLI for running Backpack-packaged open models locally or on remote compute, with a programmatic HTTP API for external clients.**
+**Backpack is an open-source runtime for running coding agents on open models—locally, on your own GPU, over SSH, or through compatible managed compute.**
 
-It is **not** a new inference engine. It orchestrates engines such as llama.cpp, whisper.cpp, pinned Python workers, and GPU generation runtimes.
+Backpack is not a coding agent and it is not an inference engine. Codex, Claude Code, OpenCode, Pi, and compatible workspaces remain the agent layer; Backpack supplies a verified coding model, protocol translation, lifecycle management, and compute routing beneath them. llama.cpp performs local GGUF inference.
 
 [![Release](https://img.shields.io/github/v/release/backpack-run/backpack-runtime?include_prereleases)](https://github.com/backpack-run/backpack-runtime/releases)
 [![CI](https://github.com/backpack-run/backpack-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/backpack-run/backpack-runtime/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+This project is alpha software. Interfaces and the curated model set may change as agent compatibility is qualified.
 
 ## Install
 
@@ -22,129 +24,100 @@ Linux x64 and macOS arm64 preview:
 curl -fsSL https://backpack.run/install.sh | sh
 ```
 
-The installer selects the newest published release, warns before installing a prerelease, verifies the archive against the matching GitHub Release checksum, and configures the user `PATH` without requiring elevation. For an inspect-first, version-pinned, or no-`PATH` installation, see [installation details](docs/install.md).
+Installers select a published release, verify its SHA-256 checksum, and use a user-local directory. See [installation details](docs/install.md), [updates](docs/update.md), and [uninstall](docs/uninstall.md).
 
-Updates are explicit and channel-aware; Backpack never updates in the background:
-
-```console
-backpack update --check --prerelease
-backpack update --prerelease
-```
-
-Stable releases are selected by default. See [update and rollback behavior](docs/update.md) and [uninstall](docs/uninstall.md).
-
-## Quick start
-
-Try the smallest model first:
+## Run a coding model
 
 ```console
-backpack --version
 backpack doctor
 backpack models
-backpack pull smollm2-135m
-backpack run smollm2-135m --prompt "Explain Backpack Runtime in one sentence."
+backpack pull qwen3-coder-30b-a3b
+backpack run qwen3-coder-30b-a3b --prompt "Write a Go function that deduplicates strings."
 ```
 
-Transcription, speech, and persistent sessions use the same managed runtime:
+Qwen3-Coder 30B A3B needs substantial memory. Backpack performs a model-fit check before downloading or starting it and recommends remote compute when the current machine is unsuitable. `smollm2-135m` remains available through `backpack models --all` only as a fast runtime/CI fixture; it is not presented as an agent model.
 
-```console
-backpack transcribe sample.wav --model whisper-large-v3-turbo
-backpack speak "Hello from Backpack" --model kokoro-82m --output hello.wav
-backpack run smollm2-135m --detach
-backpack ps
-backpack stop <session-id>
-```
+## Launch a coding agent
 
-Experimental coding-agent launch support is available for installed third-party tools. No Backpack coding model is agent-qualified yet; see [launch status](docs/launch.md).
+Install the agent separately, then let Backpack configure a scoped connection to an eligible model:
 
 ```console
 backpack launch list
-backpack launch doctor codex --model qwen3-coder-next
-backpack launch codex --model qwen3-coder-next
-backpack launch claude --model qwen3-coder-next
-backpack launch claude-app --model qwen3-coder-next
-backpack launch opencode --model qwen3-coder-next
+backpack launch doctor codex --model qwen3-coder-30b-a3b
+backpack launch codex --model qwen3-coder-30b-a3b
+backpack launch claude --model qwen3-coder-30b-a3b
+backpack launch opencode --model qwen3-coder-30b-a3b
+backpack launch pi --model qwen3-coder-30b-a3b
 ```
 
-Backpack Runtime does not require an account. Public model discovery, pull, local inference, the local API, SSH compute, and local coding-agent launches continue to work when Backpack Cloud is unreachable.
+Codex App and Claude App have persistent, restorable integrations on supported desktop platforms:
 
-Backpack Cloud is a separate, optional managed product currently in private preview. `backpack login` is needed only when deliberately testing that service:
+```console
+backpack launch codex-app --model qwen3-coder-30b-a3b
+backpack launch claude-app --model qwen3-coder-30b-a3b
+backpack launch codex-app --restore
+backpack launch claude-app --restore
+```
+
+Backpack refuses agent launch when the selected model lacks trusted coding, tool-calling, protocol, or agent-compatibility metadata. Model execution support and agent qualification are deliberately separate claims. See [agent launch](docs/launch.md) and [model qualification](docs/agent-model-qualification.md).
+
+Backpack Cloud is optional and currently access-controlled. Local models, SSH, and the local API do not require an account:
 
 ```console
 backpack login
 backpack cloud models
 backpack launch codex --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch codex-app --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch claude --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch claude-app --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch opencode --model qwen3-coder-30b-a3b-instruct:cloud
 ```
 
-The displayed `:cloud` IDs are a transitional private-preview API contract, not the long-term model identity design. The intended architecture selects a model independently from a `cloud` target. No name is silently mapped to a different hosted model. See [Backpack Cloud](docs/cloud.md) for the current compatibility path, device-key storage, and security boundaries.
+## Supported agents and models
 
-`codex-app` persistently adds the selected Backpack model alongside the native models available to the installed Codex desktop app on Windows or macOS. Native entries remain routed to OpenAI/ChatGPT; the Backpack entry is routed separately through Backpack's authenticated loopback service. It preserves the user's existing authentication and config in a private backup; restore the previous profile with `backpack launch codex-app --restore`. This integration is experimental and requires restarting Codex App when it is already open. See [Codex App integration](docs/integrations/codex-app.md).
+| Agent | Protocol | Integration |
+| --- | --- | --- |
+| Codex CLI / Codex App | OpenAI Responses | experimental, exercised by deterministic adapter tests |
+| Claude Code / Claude App | Anthropic Messages | experimental, exercised by deterministic adapter tests |
+| OpenCode | OpenAI-compatible Chat Completions | experimental |
+| Pi | OpenAI-compatible Chat Completions | experimental |
 
-`claude-app` (alias `claude-desktop`) configures Claude's third-party inference profile for one selected Backpack model. Restore the exact previous profile with `backpack launch claude-app --restore`. Claude App support is experimental and has not yet completed a real app qualification on Windows or macOS.
+The public catalog is intentionally curated. Qwen3-Coder 30B A3B is the current execution-qualified coding model and has experimental agent compatibility. Qwen3-Coder Next remains package/contract experimental until tool use is execution-qualified. See the [compatibility matrix](docs/model-compatibility.md) for precise claims.
 
-## What works
-
-- **Release channel:** early alpha; APIs and behavior may change.
-- **Windows x64:** supported and execution-validated for this alpha.
-- **Linux x64:** experimental preview binary; the release archive's CPU GGUF path has passed clean-home SmolLM2 inference and process-lifecycle qualification.
-- **macOS arm64:** experimental preview binary; cross-build/archive checks pass, but real inference has not been validated.
-- **Validated models on Windows:** SmolLM2 135M/1.7B, Qwen2.5 0.5B, and Qwen3-Coder 30B A3B chat through managed llama.cpp; the Qwen coding model also passed a structured tool-result continuation. Whisper Large v3 Turbo transcription, Qwen3-ASR transcription, and Kokoro speech are validated as well.
-- **Experimental:** Backpack Cloud private-alpha routing, Codex App/CLI, Claude/OpenCode launch and compatibility APIs, split GGUF, projector/vision contracts including GLM-5.3 Flash preflight coverage, managed-runtime SSH execution, and the generic media-job API.
-- **Package/runtime work required:** Z-Image and Wan. Their immutable component inventories are understood, but no execution-validated GPU adapter is shipped.
-
-The first end-to-end proving model is intentionally `smollm2-135m`; larger GGUF packages are compatibility validation after the execution path works. See [model usage](docs/models.md) and the detailed [compatibility matrix](docs/model-compatibility.md).
-
-## How it works
+## Execution and remote compute
 
 ```text
-CLI / Go client / external clients
-                 |
-          Backpack Runtime
-                 |
-     Model x RuntimeAdapter x ComputeTarget
+Coding Agent
+     |
+OpenAI / Anthropic protocol adapter
+     |
+Backpack inference + session layer
+     |
+Model x RuntimeAdapter x ComputeTarget
+     |
+llama.cpp on local / SSH / compatible cloud compute
 ```
 
-Backpack selects a CPU, CUDA, Vulkan, or Metal llama.cpp bundle for the machine, verifies its SHA-256 digest, and installs it automatically. `backpack runtime list`, `show`, `install`, and `verify` provide explicit inspection and repair controls. Developers may still set `BACKPACK_LLAMA_SERVER` to test a local build.
+Backpack verifies immutable model and runtime artifacts, selects CPU/CUDA/Vulkan/Metal variants, owns model sessions, reuses caches, and cleans up child processes. Advanced users can inspect them with `backpack ps`, `backpack stop`, and `backpack runtime list`.
 
-The CLI does not require Go, llama.cpp, whisper.cpp, Python, qwen-asr, or Kokoro to be installed globally. Native engines, Python distributions, and isolated environments are installed into the Backpack data directory from pinned runtime definitions. Python runtimes are currently limited to Windows x64 CPU.
-
-Backpack stores models, runtime bundles, state, logs, and generated outputs under `%LOCALAPPDATA%\Backpack` on Windows and `~/.backpack` on Linux/macOS. Set `BACKPACK_HOME` only when you intentionally need an isolated location. Use `backpack list`, `backpack runtime list`, and `backpack doctor` to inspect it; use `backpack ps` and `backpack stop <session-id>` to cleanly stop loaded models.
-
-## Remote compute (experimental)
+SSH compute is experimental:
 
 ```console
 backpack compute add ssh gpu-1 --host gpu.example.org --user alice
 backpack compute doctor gpu-1
-backpack run smollm2-135m --compute gpu-1
+backpack run qwen3-coder-30b-a3b --compute gpu-1
 ```
 
-Backpack transfers its locally verified runtime bundle into the remote user-owned cache, verifies every file remotely, reuses runtime/model caches, and tunnels loopback inference over SSH. `compute test` and `compute doctor` are aliases for the same real readiness probe. rsync resumes partial transfers when both ends provide it; SCP is the non-resumable fallback. No global remote `llama-server` or root access is required.
+## API compatibility
 
-## API
+`backpack serve` exposes a loopback-only API on `127.0.0.1:11434`:
 
-Run `backpack serve`; the API binds to `127.0.0.1:11434` by default. The current runtime refuses non-loopback binds because remote API authentication is not implemented.
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/messages`
+- Backpack session, model, compute, health, and event endpoints under `/api/backpack/v1`
 
-```console
-curl http://127.0.0.1:11434/api/backpack/v1/health
-curl http://127.0.0.1:11434/v1/models
-curl -N http://127.0.0.1:11434/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"smollm2-135m","messages":[{"role":"user","content":"Hello"}],"stream":true}'
-```
-
-Experimental `POST /v1/responses` and `POST /v1/messages` adapters support the subsets exercised by the launch integrations. They do not claim general OpenAI or Anthropic API parity.
-
-## Repositories
-
-- `backpack-model-packager` produces model artifacts, manifests, checksums, and runtime-service bundles.
-- `backpack-runtime` consumes that contract and owns execution/model state.
-- External applications can consume the public HTTP API or `pkg/client` without taking ownership of runtime processes.
+The compatibility layers focus on coding-agent needs: streaming, roles, tools/tool results, usage, stop reasons, errors, cancellation, and context limits. Unsupported semantics return explicit errors. Backpack does not claim complete OpenAI or Anthropic API parity. See [API](docs/api.md).
 
 ## Development
 
-Development requires Go 1.24+:
+Development requires Go 1.24 or newer:
 
 ```console
 go test ./...
@@ -152,8 +125,4 @@ go vet ./...
 go build ./cmd/backpack
 ```
 
-Key code lives under `internal/models`, `internal/runtime`, `internal/adapters`, `internal/compute`, `internal/server`, and `internal/cli`. Architecture and implementation details are in [docs](docs/architecture.md).
-
-## Security and licensing
-
-Read [SECURITY.md](SECURITY.md) before exposing or embedding the runtime. Report ordinary alpha bugs through [GitHub Issues](https://github.com/backpack-run/backpack-runtime/issues) and vulnerabilities privately through GitHub Security Advisories. Source code is Apache-2.0. Runtime engines and models keep their own licenses; packaging never relicenses a model.
+Architecture details are in [docs/architecture.md](docs/architecture.md). Source code is Apache-2.0; models and managed engines retain their own licenses. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

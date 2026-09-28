@@ -14,11 +14,12 @@ import (
 // Descriptor describes an external CLI without including provider credentials
 // or user-specific configuration.
 type Descriptor struct {
-	ID                       string
-	DisplayName              string
-	ExecutableCandidates     []string
-	RequiredModelCapability  string
-	RecommendedContextTokens int
+	ID                        string
+	DisplayName               string
+	ExecutableCandidates      []string
+	Protocol                  string
+	RequiredModelCapabilities []string
+	RecommendedContextTokens  int
 }
 
 var descriptorID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
@@ -44,8 +45,8 @@ func (d Descriptor) validate() error {
 		}
 		seen[key] = struct{}{}
 	}
-	if strings.TrimSpace(d.RequiredModelCapability) == "" {
-		return fmt.Errorf("integration %q requires an explicit model capability", d.ID)
+	if strings.TrimSpace(d.Protocol) == "" || len(d.RequiredModelCapabilities) == 0 {
+		return fmt.Errorf("integration %q requires a protocol and explicit model capabilities", d.ID)
 	}
 	if d.RecommendedContextTokens < 0 {
 		return fmt.Errorf("integration %q has a negative context recommendation", d.ID)
@@ -55,6 +56,7 @@ func (d Descriptor) validate() error {
 
 func cloneDescriptor(d Descriptor) Descriptor {
 	d.ExecutableCandidates = append([]string(nil), d.ExecutableCandidates...)
+	d.RequiredModelCapabilities = append([]string(nil), d.RequiredModelCapabilities...)
 	return d
 }
 

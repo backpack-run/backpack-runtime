@@ -10,9 +10,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +17,6 @@ import (
 	"github.com/backpack-run/backpack-runtime/internal/cloud"
 	"github.com/backpack-run/backpack-runtime/internal/compute"
 	"github.com/backpack-run/backpack-runtime/internal/events"
-	"github.com/backpack-run/backpack-runtime/internal/jobs"
 	"github.com/backpack-run/backpack-runtime/internal/models"
 	backruntime "github.com/backpack-run/backpack-runtime/internal/runtime"
 	"github.com/backpack-run/backpack-runtime/internal/sessions"
@@ -35,28 +31,11 @@ type SessionService interface {
 	Endpoint(string) (string, error)
 }
 
-type TranscriptionService interface {
-	Transcribe(context.Context, string, string, backruntime.TranscriptionRequest) (*backruntime.Transcription, error)
-}
-type SpeechService interface {
-	Synthesize(context.Context, string, string, backruntime.SpeechRequest) (*backruntime.Speech, error)
-}
-type JobService interface {
-	List() []*jobs.Job
-	Create(context.Context, jobs.CreateRequest) (*jobs.Job, error)
-	Get(string) (*jobs.Job, error)
-	Cancel(string) error
-	ArtifactPath(string, string) (string, error)
-}
-
 type Server struct {
 	Version         string
 	Catalog         catalog.Catalog
 	Models          *models.Manager
 	Sessions        SessionService
-	Audio           TranscriptionService
-	Speech          SpeechService
-	Jobs            JobService
 	Hardware        func() (compute.Hardware, error)
 	Client          *http.Client
 	Targets         compute.TargetStore
@@ -139,14 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/backpack/v1/integrations/claude-app/{token}/{context}/{model}/v1/messages/count_tokens", s.claudeAppCountTokens)
 	mux.HandleFunc("POST /api/backpack/v1/integrations/claude-app/{token}/{context}/{model}/v1/messages", s.claudeAppMessages)
 	mux.HandleFunc("POST /v1/messages", s.anthropicMessages)
-	mux.HandleFunc("POST /v1/audio/transcriptions", s.transcriptions)
-	mux.HandleFunc("POST /v1/audio/speech", s.speech)
 	mux.HandleFunc("GET /api/backpack/v1/events", s.eventStream)
-	mux.HandleFunc("GET /api/backpack/v1/jobs", s.listJobs)
-	mux.HandleFunc("POST /api/backpack/v1/jobs", s.createJob)
-	mux.HandleFunc("GET /api/backpack/v1/jobs/{id}", s.getJob)
-	mux.HandleFunc("DELETE /api/backpack/v1/jobs/{id}", s.cancelJob)
-	mux.HandleFunc("GET /api/backpack/v1/jobs/{id}/artifacts/{artifact}", s.getArtifact)
 	return security(mux)
 }
 
@@ -242,67 +214,6 @@ func (s *Server) authorizeCodexAppRequest(r *http.Request) (bool, *http.Request)
 	return true, cloned
 }
 
-func (s *Server) listJobs(w http.ResponseWriter, _ *http.Request) {
-	if s.Jobs == nil {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
-		return
-	}
-	write(w, http.StatusOK, map[string]any{"data": s.Jobs.List()})
-}
-func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
-	if s.Jobs == nil {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
-		return
-	}
-	var request jobs.CreateRequest
-	if err := decode(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	job, err := s.Jobs.Create(r.Context(), request)
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err)
-		return
-	}
-	write(w, http.StatusAccepted, job)
-}
-func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
-	if s.Jobs == nil {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
-		return
-	}
-	job, err := s.Jobs.Get(r.PathValue("id"))
-	if err != nil {
-		writeError(w, http.StatusNotFound, err)
-		return
-	}
-	write(w, http.StatusOK, job)
-}
-func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
-	if s.Jobs == nil {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
-		return
-	}
-	if err := s.Jobs.Cancel(r.PathValue("id")); err != nil {
-		writeError(w, http.StatusConflict, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
-	if s.Jobs == nil {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("job service is not configured"))
-		return
-	}
-	path, err := s.Jobs.ArtifactPath(r.PathValue("id"), r.PathValue("artifact"))
-	if err != nil {
-		writeError(w, http.StatusNotFound, err)
-		return
-	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(path)))
-	http.ServeFile(w, r, path)
-}
-
 func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 	if s.Events == nil {
 		writeError(w, http.StatusNotImplemented, fmt.Errorf("event stream is not configured"))
@@ -329,109 +240,6 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-}
-
-func (s *Server) speech(w http.ResponseWriter, r *http.Request) {
-	if s.Speech == nil {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("speech service is not configured"))
-		return
-	}
-	var request struct {
-		Model, Input, Voice, Format, Compute string
-		Speed                                float64
-		Force                                bool
-	}
-	if err := decode(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if strings.TrimSpace(request.Model) == "" || strings.TrimSpace(request.Input) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("model and input are required"))
-		return
-	}
-	if len(request.Input) > 12000 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("input exceeds 12000 characters"))
-		return
-	}
-	if request.Format == "" {
-		request.Format = "wav"
-	}
-	if request.Format != "wav" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("only wav output is currently supported"))
-		return
-	}
-	if request.Speed == 0 {
-		request.Speed = 1
-	}
-	if request.Speed < 0.5 || request.Speed > 2 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("speed must be between 0.5 and 2.0"))
-		return
-	}
-	result, err := s.Speech.Synthesize(r.Context(), request.Model, request.Compute, backruntime.SpeechRequest{Input: request.Input, Voice: request.Voice, Format: request.Format, Speed: request.Speed, Force: request.Force})
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err)
-		return
-	}
-	w.Header().Set("Content-Type", "audio/wav")
-	w.Header().Set("X-Backpack-Model", result.Model)
-	w.Header().Set("X-Backpack-Sample-Rate", fmt.Sprint(result.SampleRate))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(result.Audio)
-}
-
-func (s *Server) transcriptions(w http.ResponseWriter, r *http.Request) {
-	if s.Audio == nil {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("transcription service is not configured"))
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<30)
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid multipart request: %w", err))
-		return
-	}
-	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
-	}
-	model := strings.TrimSpace(r.FormValue("model"))
-	if model == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("model is required"))
-		return
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("audio file is required: %w", err))
-		return
-	}
-	defer file.Close()
-	uploadDir := filepath.Join(os.TempDir(), "backpack-runtime-uploads")
-	if err = os.MkdirAll(uploadDir, 0700); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	ext := filepath.Ext(filepath.Base(header.Filename))
-	temporary, err := os.CreateTemp(uploadDir, "audio-*"+ext)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	path := temporary.Name()
-	defer os.Remove(path)
-	if _, err = io.Copy(temporary, file); err != nil {
-		_ = temporary.Close()
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err = temporary.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	force, _ := strconv.ParseBool(r.FormValue("force"))
-	result, err := s.Audio.Transcribe(r.Context(), model, r.FormValue("compute"), backruntime.TranscriptionRequest{AudioPath: path, Language: r.FormValue("language"), Force: force})
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err)
-		return
-	}
-	write(w, http.StatusOK, result)
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -482,7 +290,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.proxyCloud(w, r, "/v1/chat/completions", body, envelope.Stream)
 		return
 	}
-	hasImage, err := validateChatMedia(body)
+	_, err = validateChatMedia(body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -491,22 +299,6 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, 422, err)
 		return
-	}
-	if hasImage {
-		entry, resolveErr := s.Catalog.Resolve(envelope.Model)
-		if resolveErr != nil {
-			writeError(w, http.StatusUnprocessableEntity, resolveErr)
-			return
-		}
-		installed, installedErr := s.Models.Installed(entry.ID)
-		if installedErr != nil {
-			writeError(w, http.StatusUnprocessableEntity, installedErr)
-			return
-		}
-		if _, ok := installed.Package.ArtifactByRole("multimodal-projector"); !ok {
-			writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("model %q has no verified multimodal projector", entry.ID))
-			return
-		}
 	}
 	endpoint, err := s.Sessions.Endpoint(session.ID)
 	if err != nil {
@@ -799,9 +591,7 @@ func validateChatMedia(body []byte) (bool, error) {
 				continue
 			}
 			hasImage = true
-			if !strings.HasPrefix(strings.ToLower(part.ImageURL.URL), "data:image/") {
-				return false, fmt.Errorf("image_url must use an inline data:image URL; network and filesystem image URLs are blocked")
-			}
+			return false, fmt.Errorf("image inputs are outside Backpack's coding-text runtime scope")
 		}
 	}
 	return hasImage, nil

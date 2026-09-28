@@ -1,38 +1,33 @@
 # Architecture
 
 ```text
-CLI ---------\
-Go client -----> HTTP/API + Go services
-other clients -/          |
-                 resolved Model
-                       x RuntimeAdapter
-                       x ComputeTarget
-                              |
-                           Session
-                              or
-                              Job -> Artifact
+Codex / Claude Code / OpenCode / Pi / compatible client
+                         |
+        Responses / Messages / Chat Completions
+                         |
+              protocol translation layer
+                         |
+        model capability + inference/session layer
+                         |
+       Model x RuntimeAdapter x ComputeTarget
+                         |
+             local / SSH / compatible cloud
 ```
 
-External coding agents sit above the same API boundary. Codex uses the experimental Responses adapter and Claude Code uses the experimental Anthropic Messages adapter. Both translate to one neutral inference request before the existing session/runtime path. Launch integrations own only executable discovery, child-scoped provider configuration, model/compute selection, and process invocation; they do not implement agent behavior or enter `RuntimeAdapter`.
+Backpack is neither the agent nor the inference engine. Agent behavior, tool approval, and workspace access remain with the external client. llama.cpp or a future trusted server backend executes model kernels. Backpack owns the boundary between them: model qualification, protocol translation, runtime installation, process/session ownership, context limits, and compute routing.
 
-Authentication is target-scoped, never a prerequisite for Runtime. Local execution needs no account; SSH uses the operator's SSH credentials; optional Backpack-managed compute uses a Backpack Cloud credential and server-side entitlement. The current private-preview `:cloud` request path is a transitional compatibility contract resolved against the live hosted list, not a second OSS model identity. A later coordinated Cloud API change will expose the managed offering as a target without hard-coded client-side model mapping.
+## Boundaries
 
-Cloud requests are forwarded in their native Chat Completions, Responses, or Messages shape. A random per-daemon credential authenticates the local agent-to-runtime hop; the runtime alone holds and applies the upstream API key or short-lived device token. Cloud failure or configuration errors do not prevent the process from starting or any OSS command from operating.
+Protocol handlers translate OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages into the protocol-neutral inference types in `internal/inference`. Runtime adapters never contain Codex-, Claude-, OpenCode-, or Pi-specific wire types. Unsupported protocol semantics fail explicitly instead of being approximated.
 
-The model resolver maps a stable alias to a versioned catalog entry and immutable repository revision. Metadata-only resolution happens before large downloads so model-fit policy can refuse unsuitable hardware. The model manager validates complete split sets and typed auxiliary artifacts, resumes interrupted downloads only after an exact HTTP range handshake, verifies declared size and SHA-256, atomically installs, and records installed state. It emits events and never prints UI text.
+The trusted catalog separates factual capabilities from agent compatibility. A model needs explicit coding and tool-calling capabilities, support for the agent's protocol, and an agent-specific `qualified` or `compatible-experimental` record before `backpack launch` admits it. Runtime execution status is not automatically an agent qualification claim.
 
-A normalized `RuntimeRequirement` is resolved by the runtime manager against a separate trusted catalog. The manager inspects the compute target, selects a platform/backend variant, downloads only HTTPS artifacts, verifies catalog-pinned SHA-256 digests, safely extracts them, writes a per-file installed manifest, and atomically commits a versioned runtime directory. Multiple versions coexist. Adapters receive an installed executable and do not own download policy.
+The model manager resolves immutable repositories, validates split GGUF sets and generic auxiliary data, resumes downloads only after a valid range response, verifies size and SHA-256, and atomically installs packages. Multimodal projectors are rejected because vision is outside the current coding-text scope.
 
-An adapter implements engine-specific preparation, launch, health, capability, and stop behavior. Selection uses `runtime.engine` from the normalized package contract. A compute target inspects and prepares a machine and executes a command. Native Whisper uses a job-style adapter; qwen-asr and Kokoro use persistent isolated-Python workers. API handlers route by capability, never by engine or model ID.
+The runtime manager maps the manifest's normalized `RuntimeRequirement` to a trusted platform/backend bundle. It verifies downloads, safely extracts archives, records installed file hashes, and permits multiple versions. llama.cpp is the sole shipped runtime family in this release.
 
-Sessions bind one resolved model, adapter, and target to endpoint/process state. The auto-started local service owns processes beyond an individual CLI request, while CLI and the public Go client use the same HTTP contract. See [runtime lifecycle](runtime-lifecycle.md) and [SSH compute](ssh-compute.md).
+Sessions bind a resolved model, runtime adapter, compute target, endpoint, and owned process. The daemon survives individual CLI calls, reuses compatible sessions, detects crashes, and stops children cleanly. On Windows it uses Job Objects; SSH execution preserves remote cache and loopback tunnel boundaries.
 
-Jobs complement sessions for bounded, long-running media work. They persist explicit lifecycle state, support cancellation and step-based progress, and return artifacts confined to `outputs/<job-id>`. Image/video runners are intentionally not registered until their package and GPU execution paths pass real validation.
+Authentication is target-scoped. Local execution needs no account, SSH uses the operator's credentials and known-host policy, and optional Backpack Cloud uses its own credential. The public runtime server remains loopback-only.
 
-Before launch, the model-fit policy compares manifest estimates and artifact size with target RAM/VRAM. Clearly unsafe local fallback is refused with a remote-compute recommendation unless the caller explicitly forces it. See [model fit](model-fit.md).
-
-Runtime state defaults to `%LOCALAPPDATA%/Backpack` on Windows and `~/.backpack` elsewhere, with separate models, manifests, runtimes, cache, logs, state, config, and outputs directories. Managed runtimes use `runtimes/<engine>/<version>/<variant>`. `BACKPACK_HOME` provides an explicit test/development override.
-
-Persisted-state ownership and the migration path toward beta are documented in [state-migrations.md](state-migrations.md).
-
-The management API lives under `/api/backpack/v1`. OpenAI-compatible inference surfaces use `/v1` only where semantics match. The server is loopback-only until authentication and authorization exist.
+State defaults to `%LOCALAPPDATA%\Backpack` on Windows and `~/.backpack` elsewhere. `BACKPACK_HOME` is an explicit override for isolated test/development use. See [runtime lifecycle](runtime-lifecycle.md), [compute targets](compute-targets.md), and [state migrations](state-migrations.md).

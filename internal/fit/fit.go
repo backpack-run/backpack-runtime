@@ -69,7 +69,7 @@ func Refusal(report Report) error {
 
 func hasAcceleratorRequirement(engine string) bool {
 	switch strings.ToLower(engine) {
-	case "llama.cpp", "diffusers":
+	case "llama.cpp":
 		return true
 	default:
 		return false

@@ -2,12 +2,12 @@ package catalog
 
 import "testing"
 
-func TestBundledCatalogHasTwelvePublishedModels(t *testing.T) {
+func TestBundledCatalogIsCuratedForCodingAgents(t *testing.T) {
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Models) != 12 {
+	if len(c.Models) != 3 {
 		t.Fatalf("got %d models", len(c.Models))
 	}
 	m, err := c.Resolve("smollm2-135m")
@@ -21,7 +21,7 @@ func TestBundledCatalogHasTwelvePublishedModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if qwen.Status != "supported" || !containsCapability(qwen.Capabilities, "tool-calling") {
+	if qwen.Status != "supported" || !containsCapability(qwen.Capabilities, "tool-calling") || qwen.ContextWindow != 262144 || qwen.Agents["codex"].Protocol != "responses" {
 		t.Fatalf("Qwen qualification metadata = %#v", qwen)
 	}
 }
@@ -46,5 +46,12 @@ func TestCatalogRejectsDuplicateAliasesAndRepositories(t *testing.T) {
 	duplicateRepository.ID, duplicateRepository.Aliases = "two", []string{"two"}
 	if err := (Catalog{SchemaVersion: 1, Models: []Model{base, duplicateRepository}}).Validate(); err == nil {
 		t.Fatal("accepted duplicate repository")
+	}
+}
+
+func TestCatalogRejectsUnsupportedAgentClaims(t *testing.T) {
+	model := Model{ID: "coder", Aliases: []string{"coder"}, Repository: "backpack-run/coder", Revision: "0123456789012345678901234567890123456789", RuntimeEngine: "llama.cpp", Status: "experimental", Capabilities: []string{"text", "coding"}, Protocols: []string{"chat-completions"}, Agents: map[string]AgentCompatibility{"codex": {Status: "qualified", Protocol: "responses"}}}
+	if err := (Catalog{SchemaVersion: 1, Models: []Model{model}}).Validate(); err == nil {
+		t.Fatal("accepted an agent claim with missing tools, context, and protocol")
 	}
 }
