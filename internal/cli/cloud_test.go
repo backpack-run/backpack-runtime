@@ -57,7 +57,7 @@ func TestOSSCommandsIgnoreUnavailableCloudConfigurationWhileLoggedOut(t *testing
 		{"models", "--json"},
 		{"compute", "add", "ssh", "test-gpu", "--host", "example.invalid"},
 		{"compute", "list"},
-		{"launch", "list"},
+		{"run", "list"},
 	}
 	for _, command := range commands {
 		var output bytes.Buffer

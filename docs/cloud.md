@@ -33,16 +33,16 @@ qwen3-coder-30b-a3b-instruct:cloud
 For example:
 
 ```console
-backpack launch doctor codex --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch codex --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch claude --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch claude-app --model qwen3-coder-30b-a3b-instruct:cloud
-backpack launch opencode --model qwen3-coder-30b-a3b-instruct:cloud
+backpack run doctor codex --model qwen3-coder-30b-a3b-instruct:cloud
+backpack run codex --model qwen3-coder-30b-a3b-instruct:cloud
+backpack run claude --model qwen3-coder-30b-a3b-instruct:cloud
+backpack run claude-app --model qwen3-coder-30b-a3b-instruct:cloud
+backpack run opencode --model qwen3-coder-30b-a3b-instruct:cloud
 ```
 
-`qwen3-coder-next:cloud` is not currently advertised by the API and is not silently mapped to another model. Disabled or unknown IDs fail before an agent is launched and list the currently available IDs.
+`qwen3-coder-next:cloud` is not currently advertised by the API and is not silently mapped to another model. Disabled or unknown IDs fail before an app starts and list the currently available IDs.
 
-The local daemon forwards Cloud requests for OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages. It replaces the local per-daemon bearer token with the Cloud credential; the Cloud credential is never given to Codex, Claude Code, or OpenCode. Cloud launch is stateless, so `--keep-alive` and local/SSH compute selection do not apply.
+The local daemon forwards Cloud requests for OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages. It replaces the local per-daemon bearer token with the Cloud credential; the Cloud credential is never given to Codex, Claude Code, or OpenCode. Cloud app execution is stateless, so `--keep-alive` and local/SSH compute selection do not apply.
 
 Cloud provider failures use HTTP 503 with a structured `cloud_inference_unavailable` error. Runtime preserves the safe `Retry-After`, `X-Request-ID`, and `X-Provider-Request-ID` response headers so clients can back off and operators can correlate a failure without exposing provider internals. An interrupted successful stream is converted into the appropriate protocol error and uses the provider correlation ID when present.
 
@@ -54,11 +54,11 @@ Claude Code treats unknown third-party model IDs as first-party models with its 
 
 The Qwen3-Coder 30B A3B RunPod worker has been deployed and execution-qualified at its native 262,144-token context. The production `api.backpack.run` control plane still advertises the previously qualified 32,768-token window until its pending catalog deployment is promoted. Runtime intentionally continues using that live 32K declaration; it does not infer deployment state from documentation or bypass the Cloud catalog. When production publishes 262,144, existing Runtime releases will adopt it automatically without a client release.
 
-On native Windows, a Codex response can contain a valid shell tool call but still fail locally with `helper_unknown_error: setup refresh had errors`. That is a Codex Windows sandbox initialization failure, not a model or Cloud protocol failure. Backpack-launched Codex uses OpenAI's documented `unelevated` sandbox fallback on Windows; it retains ACL-based filesystem restrictions but provides weaker isolation than the preferred elevated sandbox. Native OpenAI Codex sessions outside Backpack may require the same setting until the elevated sandbox is repaired.
+On native Windows, a Codex response can contain a valid shell tool call but still fail locally with `helper_unknown_error: setup refresh had errors`. That is a Codex Windows sandbox initialization failure, not a model or Cloud protocol failure. Codex started through Backpack uses OpenAI's documented `unelevated` sandbox fallback on Windows; it retains ACL-based filesystem restrictions but provides weaker isolation than the preferred elevated sandbox. Native OpenAI Codex sessions outside Backpack may require the same setting until the elevated sandbox is repaired.
 
 ## Security boundary
 
-The runtime remains loopback-only. Cloud proxy routes additionally require a random per-daemon bearer token stored in private runtime state and injected only into the launched child process. This protects against unauthenticated browser and local HTTP requests consuming Cloud quota. A malicious process already running as the same OS user remains within the same trust boundary and may be able to read user-owned process or state data.
+The runtime remains loopback-only. Cloud proxy routes additionally require a random per-daemon bearer token stored in private runtime state and injected only into the child process. This protects against unauthenticated browser and local HTTP requests consuming Cloud quota. A malicious process already running as the same OS user remains within the same trust boundary and may be able to read user-owned process or state data.
 
 `BACKPACK_CLOUD_URL` exists for development and private deployments. It accepts HTTPS endpoints, or loopback HTTP for tests; credentials are never sent to arbitrary cleartext hosts. Diagnostics report only whether authentication is configured and its source, never key material or access tokens.
 
@@ -74,7 +74,7 @@ The durable architecture keeps the concerns separate:
 model   = what runs
 runtime = how it runs
 target  = where it runs
-launch  = what consumes it
+app     = what consumes it
 ```
 
 Local and SSH targets require no Backpack account. A future `cloud` target will require Backpack authentication and current server-side entitlement. The current `:cloud` IDs remain only for private-preview compatibility until the Cloud catalog exposes a safe model-to-target contract; removing them in Runtime alone would require an unsafe hard-coded mapping. No new feature should depend on suffix-based identity.

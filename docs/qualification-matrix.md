@@ -1,6 +1,6 @@
 # Qualification matrix
 
-Claims are promoted independently for runtime execution, protocol behavior, agent integration, compute target, and operating system.
+Claims are promoted independently for runtime execution, protocol behavior, coding-app integration, compute target, and operating system.
 
 | Area | Windows amd64 | Linux amd64 | macOS arm64 |
 | --- | --- | --- | --- |

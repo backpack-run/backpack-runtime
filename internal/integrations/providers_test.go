@@ -31,7 +31,7 @@ func TestClaudeInvocationIsolatesRoutingAndPreservesPassthrough(t *testing.T) {
 		t.Fatalf("conflicting Claude credentials survived: %s", env)
 	}
 	if strings.Contains(invocation.Environment.String(), "test-daemon-key") {
-		t.Fatal("diagnostics leaked the launch token")
+		t.Fatal("diagnostics leaked the app route token")
 	}
 }
 
@@ -73,7 +73,7 @@ func TestCodexInvocationUsesCommandLineProviderIsolation(t *testing.T) {
 		t.Fatalf("Codex child environment was not isolated: %s", environment)
 	}
 	if strings.Contains(invocation.Environment.String(), "test-daemon-key") {
-		t.Fatal("diagnostics leaked the Codex launch token")
+		t.Fatal("diagnostics leaked the Codex route token")
 	}
 }
 
@@ -148,7 +148,7 @@ func TestPiInvocationUsesIsolatedOfficialModelConfiguration(t *testing.T) {
 		t.Fatalf("Pi child environment was not isolated: %s", environment)
 	}
 	if strings.Contains(invocation.Environment.String(), "test-daemon-key") {
-		t.Fatal("Pi diagnostics leaked the launch token")
+		t.Fatal("Pi diagnostics leaked the route token")
 	}
 }
 

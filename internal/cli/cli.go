@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -78,23 +77,11 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 		fmt.Fprintln(out, "backpack", version)
 		return nil
 	case "models":
-		return a.catalogList(args[1:])
-	case "model":
-		return a.modelCommand(ctx, args[1:])
-	case "catalog":
-		return a.catalogCommand(ctx, args[1:])
+		return a.modelsCommand(ctx, args[1:])
 	case "pull":
 		return a.pull(ctx, args[1:])
-	case "list":
-		return a.list()
-	case "inspect":
-		return a.inspect(ctx, args[1:])
-	case "hardware":
-		return a.hardware(ctx)
 	case "run":
-		return a.run(ctx, args[1:])
-	case "launch":
-		return a.launchCommand(ctx, args[1:])
+		return a.runCommand(ctx, args[1:])
 	case "login":
 		return a.login(ctx, args[1:])
 	case "logout":
@@ -124,26 +111,20 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, version stri
 
 func (a *app) commandHelp(command string) error {
 	usage := map[string]string{
-		"models":   "Usage: backpack models [--json] [--all]\n\nList the curated coding-model catalog. --all also includes internal test fixtures.\n",
-		"model":    "Usage: backpack model show <model>\n\nShow trusted package, runtime, and local-fit details.\n",
-		"catalog":  "Usage: backpack catalog verify [--json]\n\nCompare the trusted catalog with public Backpack packages on Hugging Face.\n",
-		"pull":     "Usage: backpack pull <model>\n\nResolve, download, verify, and atomically install a model package.\n",
-		"list":     "Usage: backpack list\n\nList installed model packages.\n",
-		"inspect":  "Usage: backpack inspect <model>\n\nInspect package metadata, runtime compatibility, and local fit without downloading weights.\n",
-		"hardware": "Usage: backpack hardware\n\nInspect local CPU, memory, GPU, and runtime capabilities.\n",
-		"run":      "Usage: backpack run <model> [--prompt text] [--context tokens] [--gpu-layers auto|n] [--keep-alive] [--detach] [--force]\n",
-		"launch":   "Usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode|pi> [options] [-- tool-args]\n\nLaunch a supported coding agent through an eligible open coding model. App setup is persistent; restore it with `backpack launch <codex-app|claude-app> --restore`.\n",
-		"login":    "Usage: backpack login [--name device-name] [--no-browser]\n\nOptionally authorize this device for Backpack Cloud. Open-source Backpack requires no account.\n",
-		"logout":   "Usage: backpack logout\n\nRemove the local Backpack Cloud device credential.\n",
-		"cloud":    "Usage: backpack cloud <status|models> [--json]\n\nInspect Backpack Cloud authentication and live model availability.\n",
-		"serve":    "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
-		"ps":       "Usage: backpack ps\n\nList service-owned runtime sessions.\n",
-		"stop":     "Usage: backpack stop <session-id>\n\nGracefully stop one exact session.\n",
-		"compute":  "Usage: backpack compute <list|add|show|test|doctor|remove> [arguments]\n",
-		"runtime":  "Usage: backpack runtime <list|show|install|verify|remove> [arguments]\n",
-		"doctor":   "Usage: backpack doctor [--json]\n\nPrint sanitized local diagnostics suitable for bug reports.\n",
-		"update":   "Usage: backpack update [--check] [--version version | --prerelease]\n\nExplicitly check for or install a SHA-256-verified GitHub release. Stable releases are selected by default.\n",
-		"version":  "Usage: backpack version\n",
+		"models":  "Usage: backpack models [--json] [--all]\n       backpack models <installed|show|verify> [arguments]\n\nBrowse, inspect, and verify the curated agent-model catalog.\n",
+		"pull":    "Usage: backpack pull <model>\n\nResolve, download, verify, and atomically install a model package.\n",
+		"run":     "Usage: backpack run <codex|codex-app|claude|claude-app|opencode|pi> [options] [-- app-args]\n       backpack run list\n       backpack run doctor <app> [options]\n\nRun an AI coding workspace through an eligible open model. Desktop app setup is persistent and restorable with `backpack run <codex-app|claude-app> --restore`.\n",
+		"login":   "Usage: backpack login [--name device-name] [--no-browser]\n\nOptionally authorize this device for Backpack Cloud. Open-source Backpack requires no account.\n",
+		"logout":  "Usage: backpack logout\n\nRemove the local Backpack Cloud device credential.\n",
+		"cloud":   "Usage: backpack cloud <status|models> [--json]\n\nInspect Backpack Cloud authentication and live model availability.\n",
+		"serve":   "Usage: backpack serve [--address 127.0.0.1:port]\n\nRun the local HTTP service in the foreground.\n",
+		"ps":      "Usage: backpack ps\n\nList service-owned runtime sessions.\n",
+		"stop":    "Usage: backpack stop <session-id>\n\nGracefully stop one exact session.\n",
+		"compute": "Usage: backpack compute <list|add|show|test|doctor|remove> [arguments]\n",
+		"runtime": "Usage: backpack runtime <list|show|install|verify|remove> [arguments]\n",
+		"doctor":  "Usage: backpack doctor [--json]\n\nPrint sanitized local diagnostics suitable for bug reports.\n",
+		"update":  "Usage: backpack update [--check] [--version version | --prerelease]\n\nExplicitly check for or install a SHA-256-verified GitHub release. Stable releases are selected by default.\n",
+		"version": "Usage: backpack version\n",
 	}
 	text, ok := usage[command]
 	if !ok {
@@ -158,28 +139,21 @@ func (a *app) help() error {
 
 Usage: backpack <command>
 
-  models [--json] [--all] list the curated coding catalog and local status
-  model show <model>      show model package, runtime, and fit details
-  catalog verify          detect trusted catalog/Hugging Face drift
-  pull <model>            download and verify a package
-  list                    list installed packages
-  inspect <model>         show manifest/runtime compatibility
-  hardware                inspect local compute
-  run <model> [flags]     create an API-owned session and chat
-  launch <integration>    launch a coding agent through an eligible open model
+  run <app> [options]     run Codex, Claude, OpenCode, or Pi on an open model
+  models                  browse the curated agent-model catalog
+  pull <model>            download and verify a model
+
+Operations:
+  ps / stop               inspect or stop runtime-owned model sessions
+  doctor [--json]         diagnose Backpack, models, runtimes, compute, and apps
+  serve                   run the loopback inference service in the foreground
+  compute <command>       manage local and SSH compute
+  runtime <command>       inspect managed inference runtimes
   login                   optionally authorize this device for Backpack Cloud
   logout                  remove the local Backpack Cloud credential
   cloud <command>         inspect Cloud authentication and live models
-  serve [--address addr]  start the loopback runtime API
-  ps                      list runtime-owned sessions
-  stop <session>          gracefully stop a session
-  compute <command>       manage local and SSH compute targets
-  runtime <command>       inspect and manage inference runtimes
-  doctor [--json]         print sanitized release diagnostics
   update [flags]          explicitly check for or install a verified release
   version
-
-Run flags: --prompt text --context tokens --gpu-layers auto|n --keep-alive --detach --force
 `)
 	return nil
 }
@@ -334,6 +308,25 @@ type catalogModelSummary struct {
 	Agents       []string `json:"compatible_agents,omitempty"`
 }
 
+func (a *app) modelsCommand(ctx context.Context, args []string) error {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		switch args[0] {
+		case "installed":
+			if len(args) != 1 {
+				return fmt.Errorf("usage: backpack models installed")
+			}
+			return a.list()
+		case "show":
+			return a.inspect(ctx, args[1:])
+		case "verify":
+			return a.catalogVerify(ctx, args[1:])
+		default:
+			return fmt.Errorf("unknown models command %q; use installed, show, or verify", args[0])
+		}
+	}
+	return a.catalogList(args)
+}
+
 func (a *app) catalogList(args []string) error {
 	fs := flag.NewFlagSet("models", flag.ContinueOnError)
 	fs.SetOutput(a.err)
@@ -389,13 +382,6 @@ func (a *app) catalogList(args []string) error {
 	return nil
 }
 
-func (a *app) modelCommand(ctx context.Context, args []string) error {
-	if len(args) == 2 && args[0] == "show" {
-		return a.inspect(ctx, args[1:])
-	}
-	return fmt.Errorf("usage: backpack model show <model>")
-}
-
 func humanBytes(size int64) string {
 	if size <= 0 {
 		return "-"
@@ -407,18 +393,15 @@ func humanBytes(size int64) string {
 	return fmt.Sprintf("%.0f MiB", float64(size)/(1024*1024))
 }
 
-func (a *app) catalogCommand(ctx context.Context, args []string) error {
-	if len(args) == 0 || args[0] != "verify" {
-		return fmt.Errorf("usage: backpack catalog verify [--json]")
-	}
-	fs := flag.NewFlagSet("catalog verify", flag.ContinueOnError)
+func (a *app) catalogVerify(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("models verify", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	asJSON := fs.Bool("json", false, "print machine-readable verification report")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: backpack catalog verify [--json]")
+		return fmt.Errorf("usage: backpack models verify [--json]")
 	}
 	report, err := (catalogverify.Verifier{}).Verify(ctx, a.catalog)
 	if err != nil {
@@ -483,7 +466,7 @@ func (a *app) list() error {
 }
 func (a *app) inspect(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: backpack inspect <model>")
+		return fmt.Errorf("usage: backpack models show <model>")
 	}
 	entry, err := a.catalog.Resolve(args[0])
 	if err != nil {
@@ -520,75 +503,6 @@ func (a *app) hardware(ctx context.Context) error {
 	fmt.Fprintln(a.out, string(b))
 	return nil
 }
-func (a *app) run(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack run <model> [--prompt text]")
-	}
-	modelName := args[0]
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	prompt := fs.String("prompt", "", "one-shot chat prompt")
-	contextSize := fs.Int("context", 0, "context tokens")
-	gpu := fs.String("gpu-layers", "auto", "GPU layers")
-	computeName := fs.String("compute", "local", "compute target")
-	keepAlive := fs.Bool("keep-alive", false, "leave the session loaded on exit")
-	detach := fs.Bool("detach", false, "create the session and return")
-	force := fs.Bool("force", false, "run even when model fit recommends remote compute")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: backpack run <model> [--prompt text]")
-	}
-	api, err := daemon.Ensure(ctx, a.paths, a.version)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(a.out, "Loading model...")
-	stopEvents := a.watchEvents(ctx, api)
-	defer stopEvents()
-	session, err := api.CreateSession(ctx, clientapi.CreateSessionRequest{Model: modelName, Compute: *computeName, Options: clientapi.SessionOptions{ContextLength: *contextSize, GPULayers: *gpu, Force: *force}})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "Ready. Session %s\n", session.ID)
-	stop := func() {
-		if *keepAlive || *detach {
-			return
-		}
-		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = api.StopSession(stopCtx, session.ID)
-	}
-	defer stop()
-	if *detach {
-		return nil
-	}
-	if *prompt != "" {
-		err = api.Chat(ctx, modelName, *prompt, true, func(token string) { fmt.Fprint(a.out, token) })
-		fmt.Fprintln(a.out)
-		return err
-	}
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Fprint(a.out, ">>> ")
-		if !scanner.Scan() {
-			return scanner.Err()
-		}
-		prompt := strings.TrimSpace(scanner.Text())
-		if prompt == "" {
-			continue
-		}
-		if prompt == "/exit" || prompt == "/quit" {
-			return nil
-		}
-		if err = api.Chat(ctx, modelName, prompt, true, func(token string) { fmt.Fprint(a.out, token) }); err != nil {
-			return err
-		}
-		fmt.Fprintln(a.out)
-	}
-}
-
 func (a *app) ps(ctx context.Context) error {
 	api, err := daemon.Ensure(ctx, a.paths, a.version)
 	if err != nil {

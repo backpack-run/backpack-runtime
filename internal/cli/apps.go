@@ -23,34 +23,34 @@ import (
 	clientapi "github.com/backpack-run/backpack-runtime/pkg/client"
 )
 
-func (a *app) launchCommand(ctx context.Context, args []string) error {
+func (a *app) runCommand(ctx context.Context, args []string) error {
 	registry, err := integrations.Builtins()
 	if err != nil {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: backpack launch <list|doctor|claude|claude-app|codex|codex-app|opencode|pi> [flags] [-- tool-args]")
+		return fmt.Errorf("usage: backpack run <codex|codex-app|claude|claude-app|opencode|pi|list|doctor> [flags] [-- app-args]")
 	}
 	if args[0] == "list" {
-		return a.launchList(registry)
+		return a.appList(registry)
 	}
 	if args[0] == "doctor" {
 		if len(args) < 2 {
-			return fmt.Errorf("usage: backpack launch doctor <claude|codex|opencode|pi> [--model model] [--compute target] [--json]")
+			return fmt.Errorf("usage: backpack run doctor <claude|codex|opencode|pi> [--model model] [--compute target] [--json]")
 		}
-		return a.launchDoctor(ctx, registry, args[1], args[2:])
+		return a.appDoctor(ctx, registry, args[1], args[2:])
 	}
 	if args[0] == "codex-app" {
-		return a.launchCodexApp(ctx, args[1:])
+		return a.runCodexApp(ctx, args[1:])
 	}
 	if args[0] == "claude-app" || args[0] == "claude-desktop" {
-		return a.launchClaudeApp(ctx, args[1:])
+		return a.runClaudeApp(ctx, args[1:])
 	}
 	descriptor, err := registry.Get(args[0])
 	if err != nil {
-		return err
+		return fmt.Errorf("unknown app %q; run `backpack run list`", args[0])
 	}
-	fs := flag.NewFlagSet("launch "+descriptor.ID, flag.ContinueOnError)
+	fs := flag.NewFlagSet("run "+descriptor.ID, flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	modelName := fs.String("model", "", "Backpack coding model")
 	computeName := fs.String("compute", "local", "Backpack compute target")
@@ -68,7 +68,7 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 		*modelName = selected
 	}
 	if cloud.IsModel(*modelName) {
-		return a.launchCloudModel(ctx, descriptor, *modelName, *computeName, *contextTokens, *keepAlive, *force, fs.Args())
+		return a.runCloudApp(ctx, descriptor, *modelName, *computeName, *contextTokens, *keepAlive, *force, fs.Args())
 	}
 	entry, err := a.catalog.Resolve(*modelName)
 	if err != nil {
@@ -148,18 +148,18 @@ func (a *app) launchCommand(ctx context.Context, args []string) error {
 	case "pi":
 		invocation, err = integrations.PiInvocation(options)
 	default:
-		err = fmt.Errorf("integration %q has no launch builder", descriptor.ID)
+		err = fmt.Errorf("app %q has no process runner", descriptor.ID)
 	}
 	if err != nil {
 		return err
 	}
 	warnCodexWindowsSandboxFallback(a.err, descriptor.ID)
-	fmt.Fprintf(a.out, "Launching %s through Backpack at %s (session %s).\n", descriptor.DisplayName, api.BaseURL, session.ID)
+	fmt.Fprintf(a.out, "Starting %s through Backpack at %s (session %s).\n", descriptor.DisplayName, api.BaseURL, session.ID)
 	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
 }
 
-func (a *app) launchClaudeApp(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("launch claude-app", flag.ContinueOnError)
+func (a *app) runClaudeApp(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("run claude-app", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	modelName := fs.String("model", "", "Backpack coding model")
 	computeName := fs.String("compute", "local", "Backpack compute target for local models")
@@ -255,15 +255,15 @@ func (a *app) launchClaudeApp(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintf(a.out, "Configured Claude App to use %s through Backpack's authenticated loopback API.\n", entry.ID)
-	fmt.Fprintln(a.out, "Restore with: backpack launch claude-app --restore")
+	fmt.Fprintln(a.out, "Restore with: backpack run claude-app --restore")
 	if *noOpen {
 		return nil
 	}
 	return integrations.OpenClaudeApp()
 }
 
-func (a *app) launchCodexApp(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("launch codex-app", flag.ContinueOnError)
+func (a *app) runCodexApp(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("run codex-app", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	modelName := fs.String("model", "", "Backpack coding model")
 	computeName := fs.String("compute", "local", "Backpack compute target for local models")
@@ -278,7 +278,7 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 		return fmt.Errorf("Codex App does not accept passthrough arguments")
 	}
 	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
-		return fmt.Errorf("Codex App launch is supported on Windows and macOS")
+		return fmt.Errorf("Codex App is supported on Windows and macOS")
 	}
 	configPath, err := integrations.DefaultCodexAppConfigPath()
 	if err != nil {
@@ -382,7 +382,7 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 	}
 	configured = true
 	fmt.Fprintf(a.out, "Configured Codex App to use %s through Backpack's authenticated loopback API.\n", entry.ID)
-	fmt.Fprintln(a.out, "Your Codex authentication file was not read or modified. Restore with: backpack launch codex-app --restore")
+	fmt.Fprintln(a.out, "Your Codex authentication file was not read or modified. Restore with: backpack run codex-app --restore")
 	if *noOpen {
 		return nil
 	}
@@ -390,7 +390,7 @@ func (a *app) launchCodexApp(ctx context.Context, args []string) error {
 	return integrations.OpenCodexApp()
 }
 
-func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Descriptor, modelName, computeName string, contextTokens int, keepAlive, force bool, passthrough []string) error {
+func (a *app) runCloudApp(ctx context.Context, descriptor integrations.Descriptor, modelName, computeName string, contextTokens int, keepAlive, force bool, passthrough []string) error {
 	if computeName != "local" && computeName != "cloud" {
 		return fmt.Errorf("a :cloud model cannot use compute target %q", computeName)
 	}
@@ -459,13 +459,13 @@ func (a *app) launchCloudModel(ctx context.Context, descriptor integrations.Desc
 	case "pi":
 		invocation, err = integrations.PiInvocation(options)
 	default:
-		err = fmt.Errorf("integration %q has no launch builder", descriptor.ID)
+		err = fmt.Errorf("app %q has no process runner", descriptor.ID)
 	}
 	if err != nil {
 		return err
 	}
 	warnCodexWindowsSandboxFallback(a.err, descriptor.ID)
-	fmt.Fprintf(a.out, "Launching %s through Backpack Cloud model %s via the local loopback API.\n", descriptor.DisplayName, model.ID)
+	fmt.Fprintf(a.out, "Starting %s through Backpack Cloud model %s via the local loopback API.\n", descriptor.DisplayName, model.ID)
 	return integrations.Run(ctx, invocation, integrations.ProcessIO{Stdin: os.Stdin, Stdout: a.out, Stderr: a.err})
 }
 
@@ -475,8 +475,8 @@ func warnCodexWindowsSandboxFallback(output io.Writer, integrationID string) {
 	}
 }
 
-func (a *app) launchList(registry *integrations.Registry) error {
-	fmt.Fprintln(a.out, "INTEGRATION  TOOL         PROTOCOL          INSTALLATION                    ELIGIBLE MODELS")
+func (a *app) appList(registry *integrations.Registry) error {
+	fmt.Fprintln(a.out, "APP          TOOL         PROTOCOL          INSTALLATION                    ELIGIBLE MODELS")
 	discovery := integrations.NewDiscovery()
 	for _, descriptor := range registry.List() {
 		_, err := discovery.Detect(descriptor)
@@ -509,12 +509,12 @@ func (a *app) launchList(registry *integrations.Registry) error {
 	return nil
 }
 
-func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry, integrationID string, args []string) error {
+func (a *app) appDoctor(ctx context.Context, registry *integrations.Registry, integrationID string, args []string) error {
 	descriptor, err := registry.Get(integrationID)
 	if err != nil {
-		return err
+		return fmt.Errorf("unknown app %q; run `backpack run list`", integrationID)
 	}
-	fs := flag.NewFlagSet("launch doctor", flag.ContinueOnError)
+	fs := flag.NewFlagSet("run doctor", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	modelName := fs.String("model", "", "Backpack coding model")
 	computeName := fs.String("compute", "local", "Backpack compute target")
@@ -523,9 +523,9 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: backpack launch doctor %s [--model model] [--compute target] [--json]", integrationID)
+		return fmt.Errorf("usage: backpack run doctor %s [--model model] [--compute target] [--json]", integrationID)
 	}
-	report := map[string]any{"integration": descriptor.ID, "display_name": descriptor.DisplayName, "required_api": descriptor.Protocol, "required_capabilities": descriptor.RequiredModelCapabilities, "compute": *computeName, "agent_eligible": false, "agent_qualified": false}
+	report := map[string]any{"app": descriptor.ID, "display_name": descriptor.DisplayName, "required_api": descriptor.Protocol, "required_capabilities": descriptor.RequiredModelCapabilities, "compute": *computeName, "app_eligible": false, "app_qualified": false}
 	if installation, detectErr := integrations.NewDiscovery().Detect(descriptor); detectErr == nil {
 		report["installed"] = true
 		report["executable"] = installation.Executable
@@ -560,8 +560,8 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 				report["model_status"] = cloudModelInfo.Status
 				report["code_capable"] = cloudModelInfo.HasCapability("code")
 				report["tool_calling_declared"] = cloudModelInfo.HasCapability("tool-calling")
-				report["agent_qualified"] = cloudModelInfo.Status == "available" && cloudModelInfo.HasCapability("code") && cloudModelInfo.HasCapability("tool-calling")
-				report["agent_eligible"] = report["agent_qualified"]
+				report["app_qualified"] = cloudModelInfo.Status == "available" && cloudModelInfo.HasCapability("code") && cloudModelInfo.HasCapability("tool-calling")
+				report["app_eligible"] = report["app_qualified"]
 				report["context_tokens"] = cloudModelInfo.ContextWindow
 				report["model_installed"] = "not-applicable"
 			}
@@ -576,11 +576,11 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 				compatibility := integrations.Compatibility(descriptor, entry)
 				report["compatibility_status"] = compatibility.Status
 				report["compatibility_reason"] = compatibility.Reason
-				report["agent_eligible"] = integrations.ModelSupports(descriptor, entry)
+				report["app_eligible"] = integrations.ModelSupports(descriptor, entry)
 				if reason := integrations.EligibilityReason(descriptor, entry); reason != "" {
 					report["eligibility_error"] = reason
 				}
-				report["agent_qualified"] = compatibility.Status == "qualified"
+				report["app_qualified"] = compatibility.Status == "qualified"
 				installed, installedErr := a.models.Installed(entry.ID)
 				report["model_installed"] = installedErr == nil
 				resolved := installed
@@ -627,7 +627,7 @@ func (a *app) launchDoctor(ctx context.Context, registry *integrations.Registry,
 		fmt.Fprintln(a.out, string(data))
 		return nil
 	}
-	keys := []string{"integration", "installed", "version", "executable", "required_api", "model", "model_installed", "code_capable", "tool_calling_declared", "compatibility_status", "eligibility_error", "context_tokens", "context_status", "compute", "compute_configured", "daemon_running", "daemon_endpoint", "config_isolated", "routing_conflicts_overridden", "agent_eligible", "agent_qualified"}
+	keys := []string{"app", "installed", "version", "executable", "required_api", "model", "model_installed", "code_capable", "tool_calling_declared", "compatibility_status", "eligibility_error", "context_tokens", "context_status", "compute", "compute_configured", "daemon_running", "daemon_endpoint", "config_isolated", "routing_conflicts_overridden", "app_eligible", "app_qualified"}
 	for _, key := range keys {
 		if value, exists := report[key]; exists {
 			fmt.Fprintf(a.out, "%-24s %v\n", key+":", value)

@@ -23,14 +23,14 @@ func Run(ctx context.Context, invocation Invocation, processIO ProcessIO) error 
 	}
 	cmd := exec.CommandContext(ctx, invocation.Executable, invocation.Args()...)
 	// Do not let descendant processes that inherited stdout/stderr keep a
-	// cancelled launch stuck in Wait indefinitely.
+	// cancelled app process stuck in Wait indefinitely.
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Env = invocation.Environment.Apply(os.Environ())
 	cmd.Stdin = processIO.Stdin
 	cmd.Stdout = processIO.Stdout
 	cmd.Stderr = processIO.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("launch integration process: %w", err)
+		return fmt.Errorf("run integration process: %w", err)
 	}
 	return nil
 }

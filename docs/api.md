@@ -9,7 +9,7 @@ Backpack exposes a loopback-only service. The API is designed around coding-agen
 - `POST /v1/responses`
 - `POST /v1/messages`
 
-Chat Completions supports streaming and non-streaming text inference. Responses and Messages implement the documented subsets required by the launch integrations. Their translators cover system/developer/user/assistant/tool roles, function definitions and calls, tool results, usage, stop reasons, streaming events, and errors where the underlying model/runtime supports them.
+Chat Completions supports streaming and non-streaming text inference. Responses and Messages implement the documented subsets required by the coding-workspace integrations. Their translators cover system/developer/user/assistant/tool roles, function definitions and calls, tool results, usage, stop reasons, streaming events, and errors where the underlying model/runtime supports them.
 
 Computer-use tools, image input, audio, speech, and media-job semantics are outside the current scope and return errors or have no route. Backpack does not fabricate tool use or structured output for a model whose trusted capabilities do not declare it.
 
@@ -30,4 +30,4 @@ See [Responses compatibility](openai-responses-compatibility.md) and [Messages c
 
 Requests reuse a compatible ready session or create one through `Model x RuntimeAdapter x ComputeTarget`. Structured events describe model/runtime preparation, session state, downloads, and failures; they contain data rather than terminal formatting.
 
-The server rejects non-loopback binds. Launch integrations use random per-daemon bearer credentials; upstream Cloud credentials remain inside Backpack and are not passed to agents.
+The server rejects non-loopback binds. App integrations use random per-daemon bearer credentials; upstream Cloud credentials remain inside Backpack and are not passed to coding apps.

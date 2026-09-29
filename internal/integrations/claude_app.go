@@ -41,7 +41,7 @@ type claudeAppState struct {
 
 func ConfigureClaudeApp(options ClaudeAppOptions) error {
 	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
-		return fmt.Errorf("Claude App launch is supported on Windows and macOS")
+		return fmt.Errorf("Claude App is supported on Windows and macOS")
 	}
 	if options.StateDirectory == "" || !filepath.IsAbs(options.StateDirectory) || options.APIKey == "" || options.Model == "" || options.ContextTokens <= 0 {
 		return fmt.Errorf("Claude App configuration is incomplete")
@@ -254,7 +254,7 @@ func OpenClaudeApp() error {
 		return exec.Command("open", "-a", "Claude").Start()
 	}
 	if runtime.GOOS != "windows" {
-		return fmt.Errorf("Claude App launch is supported on Windows and macOS")
+		return fmt.Errorf("Claude App is supported on Windows and macOS")
 	}
 	base := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
 	candidates := []string{filepath.Join(base, "Programs", "Claude", "Claude.exe"), filepath.Join(base, "Programs", "Claude Desktop", "Claude.exe"), filepath.Join(base, "Claude", "Claude.exe")}

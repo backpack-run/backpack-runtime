@@ -51,12 +51,16 @@ jobs:
           "$backpack" doctor --json
           "$backpack" models
           "$backpack" pull smollm2-135m
-          output=$("$backpack" run smollm2-135m --gpu-layers 0 --prompt 'Say hello')
+          "$backpack" serve --address 127.0.0.1:11435 >"$install_root/server.log" 2>&1 &
+          server_pid=$!
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:11435/api/backpack/v1/health >/dev/null && break
+            sleep 1
+          done
+          output=$(curl -fsS -H 'Content-Type: application/json' -d '{"model":"smollm2-135m","messages":[{"role":"user","content":"Say hello"}]}' http://127.0.0.1:11435/v1/chat/completions)
           printf '%s\n' "$output"
-          test -n "$output"
-          detached=$("$backpack" run smollm2-135m --gpu-layers 0 --detach)
-          printf '%s\n' "$detached"
-          session=$(printf '%s\n' "$detached" | awk '/Ready\. Session/{print $3; exit}')
+          printf '%s\n' "$output" | grep -q 'choices'
+          session=$("$backpack" ps | awk 'NR == 2 {print $1; exit}')
           test -n "$session"
           "$backpack" ps | grep -q "$session"
           "$backpack" stop "$session"

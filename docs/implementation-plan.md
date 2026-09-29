@@ -6,7 +6,7 @@ Completed foundation:
 - verified model/runtime installation and managed llama.cpp variants
 - local and SSH compute abstractions
 - OpenAI Chat Completions, Responses, and Anthropic Messages translation
-- Codex, Claude Code, Codex App, Claude App, OpenCode, and Pi launch adapters
+- Codex, Claude Code, Codex App, Claude App, OpenCode, and Pi app integrations
 - explicit model capabilities and per-agent protocol qualification
 - Cloud routing isolated from local runtime availability
 

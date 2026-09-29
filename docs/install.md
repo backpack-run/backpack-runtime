@@ -23,8 +23,8 @@ Invoke-WebRequest https://backpack.run/install.ps1 -OutFile install.ps1
 Get-Content .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Channel stable
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.3.0-alpha.1
-$env:BACKPACK_VERSION = 'v0.3.0-alpha.1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.3.0-alpha.2
+$env:BACKPACK_VERSION = 'v0.3.0-alpha.2'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 $env:BACKPACK_MODIFY_PATH = '0'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -NoModifyPath
 ```
@@ -45,8 +45,8 @@ curl --fail --proto '=https' --proto-redir '=https' --tlsv1.2 \
 less install.sh
 sh install.sh
 BACKPACK_CHANNEL=stable sh install.sh
-sh install.sh v0.3.0-alpha.1
-BACKPACK_VERSION=v0.3.0-alpha.1 sh install.sh
+sh install.sh v0.3.0-alpha.2
+BACKPACK_VERSION=v0.3.0-alpha.2 sh install.sh
 BACKPACK_MODIFY_PATH=0 sh install.sh
 ```
 

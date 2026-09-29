@@ -20,7 +20,7 @@ Backpack is neither the agent nor the inference engine. Agent behavior, tool app
 
 Protocol handlers translate OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages into the protocol-neutral inference types in `internal/inference`. Runtime adapters never contain Codex-, Claude-, OpenCode-, or Pi-specific wire types. Unsupported protocol semantics fail explicitly instead of being approximated.
 
-The trusted catalog separates factual capabilities from agent compatibility. A model needs explicit coding and tool-calling capabilities, support for the agent's protocol, and an agent-specific `qualified` or `compatible-experimental` record before `backpack launch` admits it. Runtime execution status is not automatically an agent qualification claim.
+The trusted catalog separates factual capabilities from app compatibility. A model needs explicit coding and tool-calling capabilities, support for the app's protocol, and an app-specific `qualified` or `compatible-experimental` record before `backpack run <app>` admits it. Runtime execution status is not automatically an app qualification claim.
 
 The model manager resolves immutable repositories, validates split GGUF sets and generic auxiliary data, resumes downloads only after a valid range response, verifies size and SHA-256, and atomically installs packages. Multimodal projectors are rejected because vision is outside the current coding-text scope.
 

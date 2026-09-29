@@ -72,7 +72,7 @@ func ConfigureCodexApp(options CodexAppOptions) error {
 			if err != nil {
 				return fmt.Errorf("preserve Codex App changes before reconfiguration: %w", err)
 			}
-			// Re-running launch is explicit consent to refresh Backpack's managed
+			// Re-running setup is explicit consent to refresh Backpack's managed
 			// keys. Preserve all other changes made by Codex or the user so a
 			// later restore never rolls the app back to stale configuration.
 			existed = true
@@ -258,7 +258,7 @@ func OpenCodexApp() error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("Codex App launch is supported on Windows and macOS")
+		return fmt.Errorf("Codex App is supported on Windows and macOS")
 	}
 }
 

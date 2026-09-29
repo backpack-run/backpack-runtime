@@ -180,7 +180,7 @@ func (i Installed) ArtifactPath(role string) (string, bool) {
 }
 
 // Verify checks the complete package, including every split shard and auxiliary
-// artifact. This is intentionally callable before every launch so corruption
+// artifact. This is intentionally callable before every model start so corruption
 // cannot be hidden by a previously written installation record.
 func (m *Manager) Verify(installed *Installed) error {
 	for _, artifact := range installed.Package.RequiredFiles() {

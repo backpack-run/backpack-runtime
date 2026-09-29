@@ -51,6 +51,28 @@ func TestModelsJSONIsMachineReadableAndHidesTestFixturesByDefault(t *testing.T) 
 	}
 }
 
+func TestRemovedTopLevelCommandsStayRemoved(t *testing.T) {
+	t.Setenv("BACKPACK_HOME", t.TempDir())
+	for _, command := range []string{"launch", "model", "catalog", "list", "inspect", "hardware"} {
+		var output bytes.Buffer
+		err := Run(context.Background(), []string{command}, &output, &output, "test")
+		if err == nil || !strings.Contains(err.Error(), "unknown command") {
+			t.Fatalf("%s unexpectedly remained public: %v %s", command, err, output.String())
+		}
+	}
+}
+
+func TestModelsConsolidatesOperationalSubcommands(t *testing.T) {
+	t.Setenv("BACKPACK_HOME", t.TempDir())
+	var output bytes.Buffer
+	if err := Run(context.Background(), []string{"models", "installed"}, &output, &output, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "No models installed") {
+		t.Fatalf("unexpected installed-model output: %s", output.String())
+	}
+}
+
 func TestDevelopmentBuildUpdateDiagnosticDoesNotContactNetwork(t *testing.T) {
 	a := &app{version: "dev (commit unknown)"}
 	status := a.updateDiagnostic(context.Background())

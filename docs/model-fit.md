@@ -1,6 +1,6 @@
 # Model-fit policy
 
-Backpack compares trusted package estimates and artifact size with detected RAM/VRAM before download or launch:
+Backpack compares trusted package estimates and artifact size with detected RAM/VRAM before download or model start:
 
 - `excellent`: accelerator requirement fits detected VRAM.
 - `good`: system memory and CPU execution are reasonable.

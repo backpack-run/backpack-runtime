@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Exact immutable release tag to qualify
         required: true
-        default: v0.3.0-alpha.1
+        default: v0.3.0-alpha.2
       coding_model:
         description: Execution-qualified candidate model for the Codex job
         required: true
@@ -45,8 +45,16 @@ jobs:
           backpack doctor --json
           backpack models --json
           backpack pull smollm2-135m
-          backpack run smollm2-135m --prompt 'Reply BACKPACK_MACOS_OK'
-          session=$(backpack run smollm2-135m --detach | awk '/Ready\. Session/{print $3; exit}')
+          backpack serve --address 127.0.0.1:11435 >"$RUNNER_TEMP/backpack-serve.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:11435/api/backpack/v1/health >/dev/null && break
+            sleep 1
+          done
+          response=$(curl -fsS -H 'Content-Type: application/json' -d '{"model":"smollm2-135m","messages":[{"role":"user","content":"Reply BACKPACK_MACOS_OK"}]}' http://127.0.0.1:11435/v1/chat/completions)
+          printf '%s\n' "$response" | grep -q 'choices'
+          session=$(backpack ps | awk 'NR == 2 {print $1; exit}')
           test -n "$session"
           backpack ps | grep -q "$session"
           backpack stop "$session"
@@ -69,12 +77,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & .\scripts\install.ps1 -Version $env:RELEASE_TAG
           $bin = Join-Path $env:LOCALAPPDATA 'Programs\Backpack\bin\backpack.exe'
-          & $bin launch doctor codex --model $env:CODING_MODEL --json
+          & $bin run doctor codex --model $env:CODING_MODEL --json
           $workspace = Join-Path $env:RUNNER_TEMP 'backpack-agent-workspace'
           New-Item -ItemType Directory -Force $workspace | Out-Null
           Set-Location $workspace
           git init
-          & $bin launch codex --model $env:CODING_MODEL -- exec --skip-git-repo-check 'Create hello.txt containing exactly BACKPACK_CODEX_OK, read it back, and report success.'
+          & $bin run codex --model $env:CODING_MODEL -- exec --skip-git-repo-check 'Create hello.txt containing exactly BACKPACK_CODEX_OK, read it back, and report success.'
           if ((Get-Content -Raw .\hello.txt).Trim() -ne 'BACKPACK_CODEX_OK') { throw 'Codex real-model artifact mismatch' }
           & $bin ps
 
@@ -114,8 +122,17 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           backpack compute add ssh qualification --host "$SSH_HOST" --user "$SSH_USER" --identity-file "$RUNNER_TEMP/backpack_ssh_key"
           backpack compute doctor qualification
-          first=$(backpack run smollm2-135m --compute qualification --prompt 'Reply BACKPACK_SSH_OK')
+          backpack pull smollm2-135m
+          backpack serve --address 127.0.0.1:11435 >"$RUNNER_TEMP/backpack-serve.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:11435/api/backpack/v1/health >/dev/null && break
+            sleep 1
+          done
+          curl -fsS -H 'Content-Type: application/json' -d '{"model":"smollm2-135m","compute":"qualification","options":{"gpu_layers":"auto"}}' http://127.0.0.1:11435/api/backpack/v1/sessions >/dev/null
+          first=$(curl -fsS -H 'Content-Type: application/json' -d '{"model":"smollm2-135m","messages":[{"role":"user","content":"Reply BACKPACK_SSH_OK"}]}' http://127.0.0.1:11435/v1/chat/completions)
           printf '%s\n' "$first" | grep -q 'BACKPACK_SSH_OK'
-          second=$(backpack run smollm2-135m --compute qualification --prompt 'Reply BACKPACK_SSH_CACHE_OK')
+          second=$(curl -fsS -H 'Content-Type: application/json' -d '{"model":"smollm2-135m","messages":[{"role":"user","content":"Reply BACKPACK_SSH_CACHE_OK"}]}' http://127.0.0.1:11435/v1/chat/completions)
           printf '%s\n' "$second" | grep -q 'BACKPACK_SSH_CACHE_OK'
           backpack ps

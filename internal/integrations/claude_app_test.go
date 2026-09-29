@@ -42,7 +42,7 @@ func TestClaudeAppConfigureReconfigureAndRestore(t *testing.T) {
 		t.Fatalf("unexpected gateway base URL %q", base)
 	}
 	// Claude adds its own settings after startup. Those additions must not make
-	// a subsequent Backpack launch fail or be destroyed during restore.
+	// a subsequent Backpack setup fail or be destroyed during restore.
 	thirdParty, err := os.ReadFile(targets.thirdPartyConfig)
 	if err != nil {
 		t.Fatal(err)

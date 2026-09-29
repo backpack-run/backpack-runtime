@@ -14,12 +14,11 @@ func (a *app) landing(ctx context.Context) error {
 	}
 	fmt.Fprint(a.out, `Backpack Runtime
 
-  1  Run a model
+  1  Run a coding workspace
   2  Browse models
-  3  Launch a coding agent (experimental)
-  4  Run doctor
-  5  List compute targets
-  6  Show help
+  3  Run doctor
+  4  List compute targets
+  5  Show help
   0  Exit
 
 Choose: `)
@@ -30,34 +29,23 @@ Choose: `)
 	}
 	switch strings.TrimSpace(choice) {
 	case "1", "run":
-		fmt.Fprint(a.out, "Model [smollm2-135m]: ")
-		model, readErr := reader.ReadString('\n')
-		if readErr != nil && strings.TrimSpace(model) == "" {
+		fmt.Fprint(a.out, "App [codex]: ")
+		workspace, readErr := reader.ReadString('\n')
+		if readErr != nil && strings.TrimSpace(workspace) == "" {
 			return readErr
 		}
-		model = strings.TrimSpace(model)
-		if model == "" {
-			model = "smollm2-135m"
+		workspace = strings.TrimSpace(workspace)
+		if workspace == "" {
+			workspace = "codex"
 		}
-		return a.run(ctx, []string{model})
+		return a.runCommand(ctx, []string{workspace})
 	case "2", "models":
 		return a.catalogList(nil)
-	case "3", "launch":
-		fmt.Fprint(a.out, "Agent [codex]: ")
-		agent, readErr := reader.ReadString('\n')
-		if readErr != nil && strings.TrimSpace(agent) == "" {
-			return readErr
-		}
-		agent = strings.TrimSpace(agent)
-		if agent == "" {
-			agent = "codex"
-		}
-		return a.launchCommand(ctx, []string{agent})
-	case "4", "doctor":
+	case "3", "doctor":
 		return a.doctor(ctx, nil)
-	case "5", "compute":
+	case "4", "compute":
 		return a.compute(ctx, []string{"list"})
-	case "6", "help":
+	case "5", "help":
 		return a.help()
 	case "0", "exit", "quit":
 		return nil

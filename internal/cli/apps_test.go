@@ -27,20 +27,32 @@ func TestSelectCodingModelFiltersIncompatibleModels(t *testing.T) {
 	}
 }
 
-func TestLaunchListAndHelp(t *testing.T) {
+func TestRunListAndHelp(t *testing.T) {
 	t.Setenv("BACKPACK_HOME", t.TempDir())
 	var output bytes.Buffer
-	if err := Run(context.Background(), []string{"launch", "list"}, &output, &output, "test"); err != nil {
+	if err := Run(context.Background(), []string{"run", "list"}, &output, &output, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "Claude Code") || !strings.Contains(output.String(), "Codex CLI") || !strings.Contains(output.String(), "Codex App") || !strings.Contains(output.String(), "OpenCode") || !strings.Contains(output.String(), "Pi") {
-		t.Fatalf("unexpected launch list: %s", output.String())
+		t.Fatalf("unexpected app list: %s", output.String())
+	}
+	if !strings.HasPrefix(output.String(), "APP ") {
+		t.Fatalf("run list still exposes implementation terminology: %s", output.String())
 	}
 	output.Reset()
-	if err := Run(context.Background(), []string{"launch", "--help"}, &output, &output, "test"); err != nil {
+	if err := Run(context.Background(), []string{"run", "--help"}, &output, &output, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "tool-args") || !strings.Contains(strings.ToLower(output.String()), "eligible open coding model") {
-		t.Fatalf("unexpected launch help: %s", output.String())
+	if !strings.Contains(output.String(), "app-args") || !strings.Contains(strings.ToLower(output.String()), "ai coding workspace") {
+		t.Fatalf("unexpected run help: %s", output.String())
+	}
+}
+
+func TestRunRejectsDirectModelChatHarness(t *testing.T) {
+	t.Setenv("BACKPACK_HOME", t.TempDir())
+	var output bytes.Buffer
+	err := Run(context.Background(), []string{"run", "smollm2-135m", "--prompt", "hello"}, &output, &output, "test")
+	if err == nil || !strings.Contains(err.Error(), "unknown app") {
+		t.Fatalf("direct model run unexpectedly remained public: %v %s", err, output.String())
 	}
 }
